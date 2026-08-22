@@ -1,0 +1,9 @@
+.env
+cache/
+checkpoints/
+data/liar/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.db
