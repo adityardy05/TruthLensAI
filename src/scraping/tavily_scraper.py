@@ -1,8 +1,24 @@
 import os
 import sys
 from typing import List, Dict, Any, Optional
-import trafilatura
-from tavily import TavilyClient
+
+try:
+    import trafilatura
+    HAS_TRAFILATURA = True
+except ImportError:
+    trafilatura = None
+    HAS_TRAFILATURA = False
+
+try:
+    # tavily-python >= 0.2.x uses TavilyClient; v0.1.x uses Client
+    try:
+        from tavily import TavilyClient
+    except ImportError:
+        from tavily import Client as TavilyClient
+    HAS_TAVILY = True
+except ImportError:
+    TavilyClient = None
+    HAS_TAVILY = False
 
 class HybridScraper:
     """
@@ -38,11 +54,13 @@ class HybridScraper:
         :param search_depth: Tavily search depth ('basic' or 'advanced').
         :return: List of evidence dictionaries formatted for RAG pipeline.
         """
+        if not HAS_TAVILY:
+            print("Warning: tavily package is not installed. Web retrieval disabled.")
+            return []
+
         if not self.api_key:
-            raise ValueError(
-                "Tavily API Key is required. Pass it to HybridScraper(api_key=...) "
-                "or set the TAVILY_API_KEY environment variable."
-            )
+            print("Warning: Tavily API Key is not set. Web retrieval disabled.")
+            return []
 
         client = TavilyClient(api_key=self.api_key)
         print(f"Executing Tavily search for query: '{query}'...")
@@ -103,6 +121,8 @@ class HybridScraper:
         """
         Helper method to fetch and extract clean article text from a URL using Trafilatura.
         """
+        if not HAS_TRAFILATURA:
+            return None
         try:
             downloaded = trafilatura.fetch_url(url)
             if downloaded:

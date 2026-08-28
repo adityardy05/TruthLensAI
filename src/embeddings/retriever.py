@@ -1,490 +1,583 @@
 """
 ================================================================
-ENHANCED RETRIEVAL AGENT
+TEAM A: DATA INGESTION & RETRIEVAL ENGINE (TruthLens v2.0)
 ================================================================
 
-Implements a hybrid RAG retrieval pipeline with four layers:
+Implements Team A's Module A RAG Retrieval and 4-Factor Evidence Scoring:
 
-    1. BM25 Lexical Search       — Keyword/exact-match scoring
-    2. Semantic FAISS Search     — Dense vector similarity scoring
-    3. Hybrid Score Fusion       — Combines BM25 + Semantic (weighted)
-    4. Temporal Filtering        — Penalises older / undated evidence
-    5. Credibility Scoring       — Boosts evidence from trusted sources
-    6. Confidence-Gated Return   — Only returns results above a threshold
+    Formula: R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
 
-Flow:
-    Query
-      |
-      v
-    [BM25 Lexical Score]  +  [FAISS Semantic Score]
-                               |
-                               v
-                    [Hybrid Fusion Score]
-                               |
-                               v
-                    [Temporal Decay Penalty]
-                               |
-                               v
-                    [Credibility Source Boost]
-                               |
-                               v
-                    [Confidence Gate Filter]
-                               |
-                               v
-                    Top-K Final Results
+    Where:
+        s₁ = BM25 Lexical Score (normalized [0, 1])
+        s₂ = Cosine Similarity (sentence-transformers all-MiniLM-L6-v2)
+        s₃ = Hybrid Domain Credibility (Hardlist → MBFC cache → Dynamic fallback)
+        s₄ = Recency Score (<30 days = 1.0, <1 yr = 0.6, >5 yrs = 0.1)
 
+Combines:
+    - Live Web Evidence via Tavily Search API + Trafilatura fallback
+    - FAISS Vector DB search over historical claims database
 ================================================================
 """
 
-import faiss
+import os
+import sys
 import math
+import time
 import pickle
 import numpy as np
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Dict, Any, Optional
-from sentence_transformers import SentenceTransformer
 
-# BM25 — pure-Python, no C extensions required
-from rank_bm25 import BM25Okapi
+# Optional dependency fallbacks
+try:
+    import faiss
+    HAS_FAISS = True
+except ImportError:
+    faiss = None
+    HAS_FAISS = False
 
+try:
+    from rank_bm25 import BM25Okapi
+    HAS_BM25 = True
+except ImportError:
+    BM25Okapi = None
+    HAS_BM25 = False
 
-# ================================================================
-# CREDIBILITY DICTIONARY
-# Maps source domains to a credibility score between 0.0 and 1.0.
-# Scores represent editorial standards and fact-checking reputation.
-# URL credibility verification is handled upstream by the Credibility Agent;
-# this dictionary provides a passive boost during retrieval scoring.
-# ================================================================
+try:
+    from sentence_transformers import SentenceTransformer, util
+    HAS_ST = True
+except ImportError:
+    SentenceTransformer = None
+    util = None
+    HAS_ST = False
 
-CREDIBILITY_SCORES: Dict[str, float] = {
-    # Tier 1 — Highly trusted, non-partisan fact-checkers and newswires
-    "reuters.com":      1.00,
-    "apnews.com":       1.00,
-    "factcheck.org":    1.00,
-    "snopes.com":       0.95,
-    "bbc.com":          0.95,
-    "npr.org":          0.90,
+# TF-IDF+SVD fallback (sklearn — always available)
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.decomposition import TruncatedSVD
+    from sklearn.preprocessing import normalize as sk_normalize
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
 
-    # Tier 2 — Reputable mainstream outlets
-    "theguardian.com":  0.85,
-    "nytimes.com":      0.85,
-    "washingtonpost.com": 0.85,
-    "bbc.co.uk":        0.85,
-    "aljazeera.com":    0.80,
-    "thehindu.com":     0.80,
-    "ndtv.com":         0.75,
-    "hindustantimes.com": 0.70,
+# Add project root to path for imports
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
-    # Tier 3 — General / neutral (default for unknown sources)
-    "__default__":      0.50,
-
-    # Tier 4 — Low-credibility or known misinformation sources
-    # Add known bad-actor domains here with scores < 0.3 if needed
-}
-
-
-def get_credibility_score(url: str) -> float:
-    """
-    Looks up the credibility score for a source URL.
-    Iterates over known domains and matches by substring.
-    Falls back to the default score if no domain is recognized.
-
-    :param url: The source URL string.
-    :return: Credibility float in [0.0, 1.0].
-    """
-    if not isinstance(url, str) or not url.strip():
-        return CREDIBILITY_SCORES["__default__"]
-
-    url_lower = url.lower()
-    for domain, score in CREDIBILITY_SCORES.items():
-        if domain == "__default__":
-            continue
-        if domain in url_lower:
-            return score
-
-    return CREDIBILITY_SCORES["__default__"]
-
+from src.embeddings.domain_credibility import HybridDomainCredibility, domain_evaluator
+from src.scraping.tavily_scraper import HybridScraper
 
 # ================================================================
-# TEMPORAL SCORING
+# RECENCY SCORING ENGINE
+# s₄ = recency_score(pub_date)
+# Spec: <30 days = 1.0, <1 yr (365 days) = 0.6, >5 yrs (1825 days) = 0.1
 # ================================================================
 
-def compute_temporal_score(publish_date_str: Optional[str], decay_days: int = 365) -> float:
+def compute_recency_score(publish_date_str: Optional[str]) -> float:
     """
-    Assigns a temporal relevance score between 0.0 and 1.0.
-
-    - Recent articles score closer to 1.0.
-    - Articles older than `decay_days` decay exponentially toward 0.0.
-    - Missing or unparseable dates receive a neutral score of 0.5.
-
-    Uses exponential decay:  score = e^(-age_in_days / decay_days)
-
-    :param publish_date_str: Publication date string (ISO format preferred).
-    :param decay_days:        Half-life denominator (default 365 days).
-    :return: Temporal score float in [0.0, 1.0].
+    Computes recency score s₄ according to TruthLens v2.0 specification:
+      - < 30 days old     : 1.00
+      - < 365 days (1 yr) : Smooth decay 1.00 -> 0.60
+      - < 1825 days (5 yr): Smooth decay 0.60 -> 0.10
+      - > 1825 days (>5 yr): 0.10
+      - Undated / Unknown  : 0.50 (Neutral)
     """
-    if not publish_date_str or publish_date_str in ("No Date", "", None):
-        return 0.5  # Neutral score for undated evidence
+    if not publish_date_str or str(publish_date_str).strip() in ("No Date", "None", ""):
+        return 0.50
 
-    # Try common date formats
     formats = [
         "%Y-%m-%d",
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S.%fZ",
         "%d/%m/%Y",
+        "%d-%m-%Y",
         "%B %d, %Y",
         "%b %d, %Y",
     ]
 
     pub_date = None
+    date_clean = str(publish_date_str).strip()
     for fmt in formats:
         try:
-            pub_date = datetime.strptime(str(publish_date_str).strip(), fmt)
+            pub_date = datetime.strptime(date_clean, fmt)
             break
         except ValueError:
             continue
 
     if pub_date is None:
-        return 0.5  # Could not parse date — use neutral score
+        # Try extracting standard ISO date YYYY-MM-DD via regex
+        import re
+        match = re.search(r'\d{4}-\d{2}-\d{2}', date_clean)
+        if match:
+            try:
+                pub_date = datetime.strptime(match.group(0), "%Y-%m-%d")
+            except ValueError:
+                return 0.50
+        else:
+            return 0.50
 
     now = datetime.now()
-    age_in_days = max((now - pub_date).days, 0)
-    return math.exp(-age_in_days / decay_days)
+    age_days = max((now - pub_date).days, 0)
 
+    if age_days <= 30:
+        return 1.00
+    elif age_days <= 365:
+        # Linear interpolation from 1.00 (day 30) to 0.60 (day 365)
+        return round(1.00 - (0.40 * (age_days - 30) / (365 - 30)), 4)
+    elif age_days <= 1825:
+        # Linear interpolation from 0.60 (day 365) to 0.10 (day 1825)
+        return round(0.60 - (0.50 * (age_days - 365) / (1825 - 365)), 4)
+    else:
+        return 0.10
 
 # ================================================================
-# ENHANCED RETRIEVAL AGENT
+# TEAM A RETRIEVAL PIPELINE CLASS
 # ================================================================
 
-class EnhancedRetrievalAgent:
+class TeamARetrievalPipeline:
     """
-    Hybrid RAG Retrieval Agent combining:
-        - BM25 (TF-IDF keyword matching)
-        - Semantic FAISS vector search
-        - Temporal decay scoring
-        - Source credibility boosting
-        - Confidence-gated result filtering
-
-    Parameters
-    ----------
-    index_path        : Path to the compiled FAISS index (.faiss file).
-    metadata_path     : Path to the metadata pickle file (.pkl file).
-    model_name        : SentenceTransformer model (must match the one used to build the index).
-    bm25_weight       : Weight for BM25 score in hybrid fusion (0.0–1.0).
-    semantic_weight   : Weight for semantic FAISS score in hybrid fusion (0.0–1.0).
-    temporal_weight   : Weight of temporal score in final scoring.
-    credibility_weight: Weight of source credibility in final scoring.
-    confidence_threshold: Minimum final score to include a result (confidence gate).
-    temporal_decay_days : Age in days at which temporal score = e^-1 ≈ 0.37.
+    Module A: Data Ingestion & Retrieval Pipeline for Team A.
+    Executes live web search + FAISS retrieval and scores evidence using the 4-factor formula:
+        R(d) = 0.25·BM25 + 0.25·cosine + 0.25·domain + 0.25·recency
     """
 
     def __init__(
         self,
-        index_path: str,
-        metadata_path: str,
+        index_path: Optional[str] = None,
+        metadata_path: Optional[str] = None,
         model_name: str = "all-MiniLM-L6-v2",
-        bm25_weight: float = 0.3,
-        semantic_weight: float = 0.7,
-        temporal_weight: float = 0.1,
-        credibility_weight: float = 0.15,
-        confidence_threshold: float = 0.4,
-        temporal_decay_days: int = 365,
+        tavily_api_key: Optional[str] = None
     ):
-        # ── Weights validation ──────────────────────────────────
-        assert abs(bm25_weight + semantic_weight - 1.0) < 1e-6, (
-            "bm25_weight + semantic_weight must equal 1.0"
-        )
+        if HAS_ST:
+            print(f"[TeamA Engine] Initializing Sentence Transformer: '{model_name}'...")
+            self.embedding_model = SentenceTransformer(model_name)
+            self.tfidf_svd_model = None
+        else:
+            print("[TeamA Engine] SentenceTransformer not available; loading TF-IDF+SVD fallback...")
+            self.embedding_model = None
+            self.tfidf_svd_model = None
+            # Try to load pre-built TF-IDF+SVD model
+            _tfidf_path = os.path.join(BASE_DIR, "data", "tfidf_svd_model.pkl")
+            if HAS_SKLEARN and os.path.exists(_tfidf_path):
+                try:
+                    with open(_tfidf_path, "rb") as _f:
+                        self.tfidf_svd_model = pickle.load(_f)
+                    print(f"[TeamA Engine] Loaded TF-IDF+SVD model from: {_tfidf_path}")
+                except Exception as _e:
+                    print(f"[TeamA Engine] Warning: Could not load TF-IDF+SVD model: {_e}")
+            else:
+                print("[TeamA Engine] No TF-IDF+SVD model found. FAISS search will be skipped.")
 
-        self.bm25_weight         = bm25_weight
-        self.semantic_weight     = semantic_weight
-        self.temporal_weight     = temporal_weight
-        self.credibility_weight  = credibility_weight
-        self.confidence_threshold = confidence_threshold
-        self.temporal_decay_days = temporal_decay_days
+        self.domain_evaluator = HybridDomainCredibility()
 
-        # ── Load Sentence Transformer ───────────────────────────
-        print(f"[Retriever] Loading embedding model: {model_name}...")
-        self.model = SentenceTransformer(model_name)
+        # Initialize Web Scraper (Tavily + Trafilatura)
+        self.scraper = HybridScraper(api_key=tavily_api_key)
 
-        # ── Load FAISS Index ────────────────────────────────────
-        print(f"[Retriever] Loading FAISS index from {index_path}...")
-        self.index = faiss.read_index(index_path)
+        # Initialize FAISS & BM25 local corpus if present
+        self.faiss_index = None
+        self.metadata = []
+        self.bm25_index = None
 
-        # ── Load Metadata ───────────────────────────────────────
-        print(f"[Retriever] Loading metadata from {metadata_path}...")
-        with open(metadata_path, "rb") as f:
-            self.metadata = pickle.load(f)
+        if HAS_FAISS and index_path and metadata_path and os.path.exists(index_path) and os.path.exists(metadata_path):
+            try:
+                print(f"[TeamA Engine] Loading FAISS index: {index_path}")
+                self.faiss_index = faiss.read_index(index_path)
 
-        # ── Build BM25 Index ────────────────────────────────────
-        print("[Retriever] Building BM25 index from corpus...")
-        self._build_bm25_index()
+                print(f"[TeamA Engine] Loading FAISS metadata: {metadata_path}")
+                with open(metadata_path, "rb") as f:
+                    self.metadata = pickle.load(f)
 
-        print(f"[Retriever] Ready. Corpus size: {len(self.metadata)} documents.\n")
+                if HAS_BM25:
+                    tokenized_corpus = []
+                    for doc in self.metadata:
+                        text = doc.get("cleaned_text") or doc.get("statement", "")
+                        tokenized_corpus.append(str(text).lower().split())
+                    self.bm25_index = BM25Okapi(tokenized_corpus)
+                    print(f"[TeamA Engine] Built BM25 index over {len(self.metadata)} historical documents.")
+            except Exception as e:
+                print(f"[TeamA Engine] Warning: Failed to load FAISS index or metadata: {e}")
 
-    # ──────────────────────────────────────────────────────────────
-    # BM25 Index Construction
-    # ──────────────────────────────────────────────────────────────
-
-    def _build_bm25_index(self):
+    def generate_sub_claims(self, claim: str) -> List[str]:
         """
-        Tokenizes each document in the metadata corpus and builds
-        a BM25Okapi index for lexical keyword retrieval.
-
-        Uses the 'cleaned_text' field. Falls back to 'statement' if
-        'cleaned_text' is absent (for raw LIAR dataset entries).
+        Decomposes the main claim into heuristic sub-claims for targeted search & verification.
         """
-        tokenized_corpus = []
-        for doc in self.metadata:
-            text = doc.get("cleaned_text") or doc.get("statement", "")
-            tokens = str(text).lower().split()
-            tokenized_corpus.append(tokens)
+        claim_clean = claim.strip()
+        sub_claims = [claim_clean]
 
-        self.bm25 = BM25Okapi(tokenized_corpus)
+        # Generate simple sub-queries if multi-word claim
+        words = claim_clean.split()
+        if len(words) > 6:
+            # Generate key phrase sub-claim
+            sub_claims.append(" ".join(words[:len(words)//2]))
+            sub_claims.append(" ".join(words[len(words)//2:]))
 
-    # ──────────────────────────────────────────────────────────────
-    # BM25 Lexical Search
-    # ──────────────────────────────────────────────────────────────
+        return list(dict.fromkeys(sub_claims))  # Preserve unique order
 
-    def _bm25_search(self, query: str, top_n: int) -> Dict[int, float]:
+    def retrieve_live_web(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """
-        Runs BM25 on the query and returns a dict of {doc_index: normalised_score}.
-        Scores are normalised to [0.0, 1.0] by dividing by the max BM25 score.
-
-        :param query:  Raw query string.
-        :param top_n:  Number of top results to consider.
-        :return: Dict mapping corpus index → normalised BM25 score.
+        Retrieves live web evidence using Tavily API with Trafilatura fallback.
         """
-        query_tokens = query.lower().split()
-        scores = self.bm25.get_scores(query_tokens)
-
-        # Normalise scores to [0, 1]
-        max_score = np.max(scores) if np.max(scores) > 0 else 1.0
-        normalised = scores / max_score
-
-        # Grab the top_n indices sorted by descending score
-        top_indices = np.argsort(normalised)[::-1][:top_n]
-        return {int(idx): float(normalised[idx]) for idx in top_indices}
-
-    # ──────────────────────────────────────────────────────────────
-    # FAISS Semantic Search
-    # ──────────────────────────────────────────────────────────────
-
-    def _semantic_search(self, query: str, top_n: int) -> Dict[int, float]:
-        """
-        Embeds the query and runs FAISS similarity search.
-        Returns a dict of {doc_index: normalised_semantic_score}.
-
-        FAISS returns L2 distances (lower = more similar).
-        We convert to similarity scores using: score = 1 / (1 + distance).
-
-        :param query:  Raw query string.
-        :param top_n:  Number of top FAISS results.
-        :return: Dict mapping corpus index → semantic similarity score.
-        """
-        query_embedding = np.array(
-            self.model.encode([query])
-        ).astype("float32")
-
-        distances, indices = self.index.search(query_embedding, top_n)
-
-        results = {}
-        for idx, dist in zip(indices[0], distances[0]):
-            if idx == -1:
-                continue
-            # Convert L2 distance to similarity (0-1 range)
-            similarity = 1.0 / (1.0 + float(dist))
-            results[int(idx)] = similarity
-
-        return results
-
-    # ──────────────────────────────────────────────────────────────
-    # Hybrid Fusion
-    # ──────────────────────────────────────────────────────────────
-
-    def _fuse_scores(
-        self,
-        bm25_scores: Dict[int, float],
-        semantic_scores: Dict[int, float]
-    ) -> Dict[int, float]:
-        """
-        Fuses BM25 and semantic scores using a weighted linear combination:
-
-            hybrid_score = (bm25_weight × bm25_score) + (semantic_weight × semantic_score)
-
-        Considers the union of both result sets so that results appearing
-        in only one retriever still have a chance to surface.
-
-        :param bm25_scores:     Dict {doc_idx: normalised_bm25_score}
-        :param semantic_scores: Dict {doc_idx: semantic_similarity_score}
-        :return: Dict {doc_idx: hybrid_score}
-        """
-        all_indices = set(bm25_scores.keys()) | set(semantic_scores.keys())
-        fused = {}
-        for idx in all_indices:
-            b_score = bm25_scores.get(idx, 0.0)
-            s_score = semantic_scores.get(idx, 0.0)
-            fused[idx] = (self.bm25_weight * b_score) + (self.semantic_weight * s_score)
-        return fused
-
-    # ──────────────────────────────────────────────────────────────
-    # Final Scoring (Temporal + Credibility Boost)
-    # ──────────────────────────────────────────────────────────────
-
-    def _compute_final_score(
-        self,
-        hybrid_score: float,
-        publish_date: str,
-        source_url: str,
-    ) -> float:
-        """
-        Applies temporal decay and credibility boost on top of the hybrid score.
-
-        Final Formula:
-            final = hybrid_score
-                  + (temporal_weight  × temporal_score)
-                  + (credibility_weight × credibility_score)
-
-        The result is clipped to [0.0, 1.0].
-
-        :param hybrid_score:  Fused BM25 + semantic score.
-        :param publish_date:  Article publish date string.
-        :param source_url:    Article source URL.
-        :return: Final composite score in [0.0, 1.0].
-        """
-        temporal_score    = compute_temporal_score(publish_date, self.temporal_decay_days)
-        credibility_score = get_credibility_score(source_url)
-
-        final = (
-            hybrid_score
-            + (self.temporal_weight   * temporal_score)
-            + (self.credibility_weight * credibility_score)
-        )
-        return min(max(final, 0.0), 1.0)  # Clip to [0, 1]
-
-    # ──────────────────────────────────────────────────────────────
-    # Public Search API
-    # ──────────────────────────────────────────────────────────────
-
-    def search(
-        self,
-        query: str,
-        top_k: int = 5,
-        candidate_pool: int = 50,
-    ) -> List[Dict[str, Any]]:
-        """
-        Hybrid retrieval with temporal filtering, credibility scoring,
-        and confidence gating.
-
-        Steps:
-            1. BM25 lexical search over `candidate_pool` documents.
-            2. FAISS semantic search over `candidate_pool` documents.
-            3. Fuse scores with weighted combination.
-            4. Apply temporal decay and credibility boost.
-            5. Filter out results below `confidence_threshold`.
-            6. Return top `top_k` results sorted by final score.
-
-        :param query:          The claim or question text.
-        :param top_k:          Maximum number of results to return.
-        :param candidate_pool: How many candidates each retriever considers
-                               before fusion (larger = more thorough, slower).
-        :return: List of result dicts, sorted by descending final_score.
-        """
-        if not query or not query.strip():
+        try:
+            if not self.scraper.api_key:
+                print("[TeamA Engine] Tavily API key not set. Skipping live web retrieval.")
+                return []
+            return self.scraper.search_and_extract(query=query, max_results=max_results)
+        except Exception as e:
+            print(f"[TeamA Engine] Live web retrieval error: {e}")
             return []
 
-        # Step 1 & 2: BM25 + Semantic search
-        bm25_scores     = self._bm25_search(query, top_n=candidate_pool)
-        semantic_scores = self._semantic_search(query, top_n=candidate_pool)
+    def _encode_query(self, query: str) -> Optional[np.ndarray]:
+        """
+        Encodes a query string into a 384-dim vector.
+        Uses sentence-transformers if available, else TF-IDF+SVD fallback.
+        """
+        if self.embedding_model is not None:
+            vec = np.array(self.embedding_model.encode([query])).astype("float32")
+            faiss.normalize_L2(vec)
+            return vec
+        elif self.tfidf_svd_model is not None:
+            tfidf = self.tfidf_svd_model["tfidf"]
+            svd   = self.tfidf_svd_model["svd"]
+            sparse = tfidf.transform([query])
+            dense  = svd.transform(sparse).astype("float32")
+            vec    = sk_normalize(dense, norm="l2")
+            return vec
+        return None
 
-        # Step 3: Hybrid fusion
-        fused_scores = self._fuse_scores(bm25_scores, semantic_scores)
+    def retrieve_faiss(self, query: str, top_n: int = 10) -> List[Dict[str, Any]]:
+        """
+        Retrieves historical claim evidence from FAISS vector store.
+        Uses sentence-transformers or TF-IDF+SVD fallback for query encoding.
+        """
+        if not self.faiss_index or not self.metadata:
+            return []
 
-        # Step 4 & 5: Apply temporal + credibility boost, then confidence gate
-        results = []
-        for idx, hybrid_score in fused_scores.items():
-            doc = self.metadata[idx]
+        try:
+            query_emb = self._encode_query(query)
+            if query_emb is None:
+                print("[TeamA Engine] No query encoder available. Skipping FAISS search.")
+                return []
+            distances, indices = self.faiss_index.search(query_emb, top_n)
 
-            publish_date = doc.get("publish_date") or doc.get("context", "")
-            source_url   = doc.get("url", "")
+            faiss_results = []
+            for idx, dist in zip(indices[0], distances[0]):
+                if idx == -1 or idx >= len(self.metadata):
+                    continue
+                doc = self.metadata[idx]
+                faiss_results.append({
+                    "source_id": f"faiss_{idx}",
+                    "source_url": doc.get("url", "http://liar-dataset.internal"),
+                    "title": doc.get("statement", "")[:80],
+                    "source_type": "faiss_dataset",
+                    "text_snippet": doc.get("cleaned_text") or doc.get("statement", ""),
+                    "published_date": doc.get("publish_date") or doc.get("context", ""),
+                    "author": doc.get("speaker", "Unknown Speaker"),
+                    "organization": doc.get("job_title", "Dataset Record")
+                })
+            return faiss_results
+        except Exception as e:
+            print(f"[TeamA Engine] FAISS search error: {e}")
+            return []
 
-            final_score = self._compute_final_score(hybrid_score, publish_date, source_url)
+    def score_and_rank_evidence(
+        self,
+        claim: str,
+        raw_evidence: List[Dict[str, Any]],
+        top_k: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Applies the 4-factor scoring formula R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄ to raw evidence items.
 
-            # Confidence gate — skip weak evidence
-            if final_score < self.confidence_threshold:
-                continue
+        Returns top_k items sorted by combined_reliability R(d) descending.
+        """
+        if not raw_evidence:
+            return []
 
-            results.append({
-                "final_score":        round(final_score, 4),
-                "hybrid_score":       round(hybrid_score, 4),
-                "bm25_score":         round(bm25_scores.get(idx, 0.0), 4),
-                "semantic_score":     round(semantic_scores.get(idx, 0.0), 4),
-                "temporal_score":     round(
-                    compute_temporal_score(publish_date, self.temporal_decay_days), 4
-                ),
-                "credibility_score":  round(get_credibility_score(source_url), 4),
-                "label":              doc.get("label", "unknown"),
-                "statement":          doc.get("statement", doc.get("cleaned_text", "")),
-                "speaker":            doc.get("speaker", ""),
-                "context":            doc.get("context", ""),
-                "source_url":         source_url,
-                "publish_date":       publish_date,
+        snippets = [item.get("text_snippet", "") for item in raw_evidence]
+        tokenized_snippets = [str(s).lower().split() for s in snippets]
+        claim_tokens = set(claim.lower().split())
+
+        # 1. s₁: BM25 Lexical Score (with word-overlap fallback)
+        if HAS_BM25 and len(tokenized_snippets) > 0:
+            bm25_engine = BM25Okapi(tokenized_snippets)
+            bm25_raw_scores = bm25_engine.get_scores(claim.lower().split())
+            max_bm25 = np.max(bm25_raw_scores) if len(bm25_raw_scores) > 0 and np.max(bm25_raw_scores) > 0 else 1.0
+            bm25_norm_scores = [round(float(score / max_bm25), 4) for score in bm25_raw_scores]
+        else:
+            # Fallback word overlap ratio
+            bm25_norm_scores = []
+            for snip_tokens in tokenized_snippets:
+                snip_set = set(snip_tokens)
+                overlap = len(claim_tokens.intersection(snip_set))
+                ratio = overlap / len(claim_tokens) if claim_tokens else 0.0
+                bm25_norm_scores.append(round(min(ratio * 1.5, 1.0), 4))
+
+        # 2. s₂: Cosine Similarity Score (with Jaccard similarity fallback)
+        if HAS_ST and self.embedding_model is not None:
+            claim_embedding = self.embedding_model.encode(claim, convert_to_tensor=True)
+            snippet_embeddings = self.embedding_model.encode(snippets, convert_to_tensor=True)
+            cosine_sims = util.cos_sim(claim_embedding, snippet_embeddings)[0].tolist()
+            cosine_norm_scores = [round(max(float(sim), 0.0), 4) for sim in cosine_sims]
+        else:
+            # Fallback Jaccard index
+            cosine_norm_scores = []
+            for snip_tokens in tokenized_snippets:
+                snip_set = set(snip_tokens)
+                union_len = len(claim_tokens.union(snip_set))
+                inter_len = len(claim_tokens.intersection(snip_set))
+                jaccard = inter_len / union_len if union_len > 0 else 0.0
+                cosine_norm_scores.append(round(min(jaccard * 2.0, 1.0), 4))
+
+        processed_evidence = []
+        for idx, item in enumerate(raw_evidence):
+            url = item.get("source_url", "")
+            domain = self.domain_evaluator.extract_domain(url) or "unknown"
+
+            # 3. s₃: Domain Credibility Score (Hybrid: Hardlist -> MBFC -> Dynamic)
+            domain_cred, cred_source = self.domain_evaluator.evaluate(url)
+
+            # 4. s₄: Recency Score
+            pub_date = item.get("published_date")
+            recency_score = compute_recency_score(pub_date)
+
+            s1 = bm25_norm_scores[idx]
+            s2 = cosine_norm_scores[idx]
+            s3 = round(domain_cred, 4)
+            s4 = recency_score
+
+            # Combined Reliability: R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
+            combined_reliability = round(0.25 * s1 + 0.25 * s2 + 0.25 * s3 + 0.25 * s4, 4)
+
+            # Extract author / organization
+            author = item.get("author") or self._extract_author(item)
+            org = item.get("organization") or domain.split(".")[0].upper()
+
+            processed_evidence.append({
+                "source_domain": domain,
+                "author": author,
+                "organization": org,
+                "content": item.get("text_snippet", ""),
+                "url": url,
+                "bm25_score": s1,
+                "cosine_score": s2,
+                "domain_credibility": s3,
+                "credibility_source": cred_source,
+                "recency_score": s4,
+                "combined_reliability": combined_reliability,
+                "retrieval_rank": 0  # To be set after sorting
             })
 
-        # Step 6: Sort by final score descending, return top_k
-        results.sort(key=lambda x: x["final_score"], reverse=True)
-        return results[:top_k]
+        # Sort by combined_reliability descending
+        processed_evidence.sort(key=lambda x: x["combined_reliability"], reverse=True)
 
+        # Truncate to top_k and assign retrieval_rank
+        top_evidence = processed_evidence[:top_k]
+        for rank, item in enumerate(top_evidence, start=1):
+            item["retrieval_rank"] = rank
 
-# ================================================================
-# Quick test — run: python src/embeddings/retriever.py
-# ================================================================
+        return top_evidence
 
+    def _extract_author(self, item: Dict[str, Any]) -> str:
+        domain = self.domain_evaluator.extract_domain(item.get("source_url", ""))
+        if "who.int" in domain:
+            return "World Health Organization"
+        elif "reuters" in domain:
+            return "Reuters Staff"
+        elif "apnews" in domain:
+            return "Associated Press"
+        elif "bbc" in domain:
+            return "BBC News"
+        elif "factcheck" in domain:
+            return "FactCheck.org Staff"
+        elif "snopes" in domain:
+            return "Snopes Fact Checker"
+        return "Editorial Team"
+
+    def process_claim(
+        self,
+        claim: str,
+        original_language: str = "en",
+        top_k: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Executes full Module A pipeline:
+          1. Sub-claim decomposition
+          2. Multi-source evidence retrieval (Tavily live web + FAISS)
+          3. 4-factor scoring R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
+          4. Adheres strictly to Module A -> Module B Inter-Team Data Contract.
+        """
+        start_time = time.time()
+
+        normalized_claim = claim.strip()
+        sub_claims = self.generate_sub_claims(normalized_claim)
+
+        # 1. Retrieve raw evidence
+        raw_web_evidence = self.retrieve_live_web(normalized_claim, max_results=top_k * 2)
+        raw_faiss_evidence = self.retrieve_faiss(normalized_claim, top_n=top_k * 2)
+
+        raw_all = raw_web_evidence + raw_faiss_evidence
+
+        # Deduplicate evidence by content/URL
+        seen_urls = set()
+        unique_raw = []
+        for item in raw_all:
+            u = item.get("source_url", "")
+            if u not in seen_urls:
+                seen_urls.add(u)
+                unique_raw.append(item)
+
+        # 2. Apply 4-Factor R(d) Scoring & Ranking
+        scored_evidence = self.score_and_rank_evidence(
+            claim=normalized_claim,
+            raw_evidence=unique_raw,
+            top_k=top_k
+        )
+
+        # 3. Persistently store/cache retrieved web evidence in local database cache
+        self._cache_retrieved_evidence(unique_raw)
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        top_domain = scored_evidence[0]["source_domain"] if scored_evidence else "N/A"
+
+        # 4. Format exact Inter-Team Data Contract JSON (Module A -> Module B)
+        output_contract = {
+            "claim": normalized_claim,
+            "original_language": original_language,
+            "normalized_claim": normalized_claim,
+            "sub_claims": sub_claims,
+            "evidence": scored_evidence,
+            "metadata": {
+                "retrieval_time_ms": elapsed_ms,
+                "num_sources_total": len(unique_raw),
+                "num_sources_kept": len(scored_evidence),
+                "top_source_domain": top_domain
+            }
+        }
+
+        return output_contract
+
+    def _cache_retrieved_evidence(self, raw_evidence: List[Dict[str, Any]]) -> None:
+        """
+        Saves/caches newly retrieved web evidence into a persistent local JSON store
+        and updates the FAISS vector database dynamically so all evidence is stored in FAISS.
+        """
+        if not raw_evidence:
+            return
+
+        cache_dir = os.path.join(BASE_DIR, "data", "processed")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, "web_evidence_cache.json")
+
+        existing_cache = {}
+        if os.path.exists(cache_file):
+            try:
+                import json
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    existing_cache = json.load(f)
+            except Exception:
+                existing_cache = {}
+
+        new_items_to_index = []
+        import json
+        for item in raw_evidence:
+            url = item.get("source_url") or item.get("url")
+            if url and url not in existing_cache:
+                evidence_record = {
+                    "title": item.get("title", ""),
+                    "text_snippet": item.get("text_snippet", ""),
+                    "published_date": item.get("published_date", ""),
+                    "retrieved_at": datetime.now().isoformat()
+                }
+                existing_cache[url] = evidence_record
+                new_items_to_index.append(item)
+
+        if new_items_to_index:
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(existing_cache, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"[TeamA Engine] Warning: Failed to update web evidence cache: {e}")
+
+            # Dynamically index new web evidence into FAISS database
+            self._index_live_evidence_to_faiss(new_items_to_index)
+
+    def _index_live_evidence_to_faiss(self, new_items: List[Dict[str, Any]]) -> None:
+        """
+        Dynamically generates vector embeddings for new Tavily web evidence
+        and appends them to the FAISS index and metadata.pkl.
+        Supports sentence-transformers or TF-IDF+SVD fallback.
+        """
+        if not HAS_FAISS or not self.faiss_index:
+            return
+
+        try:
+            texts = [item.get("text_snippet", "") for item in new_items if item.get("text_snippet")]
+            if not texts:
+                return
+
+            print(f"[TeamA Engine] Dynamically adding {len(texts)} new web articles to FAISS database...")
+
+            if self.embedding_model is not None:
+                # sentence-transformers path
+                embeddings = self.embedding_model.encode(texts)
+                embeddings = np.array(embeddings).astype("float32")
+                faiss.normalize_L2(embeddings)
+            elif self.tfidf_svd_model is not None:
+                # TF-IDF+SVD path
+                tfidf  = self.tfidf_svd_model["tfidf"]
+                svd    = self.tfidf_svd_model["svd"]
+                sparse = tfidf.transform(texts)
+                dense  = svd.transform(sparse).astype("float32")
+                embeddings = sk_normalize(dense, norm="l2")
+            else:
+                print("[TeamA Engine] No encoder available; skipping dynamic FAISS update.")
+                return
+
+            # Check dimensionality matches
+            if self.faiss_index.d == embeddings.shape[1]:
+                self.faiss_index.add(embeddings)
+
+                index_path    = os.path.join(BASE_DIR, "data", "faiss_index.bin")
+                metadata_path = os.path.join(BASE_DIR, "data", "faiss_metadata.pkl")
+
+                faiss.write_index(self.faiss_index, index_path)
+
+                for item in new_items:
+                    self.metadata.append({
+                        "statement":    item.get("title", ""),
+                        "cleaned_text": item.get("text_snippet", ""),
+                        "url":          item.get("source_url", ""),
+                        "publish_date": item.get("published_date", ""),
+                        "label":        "live_web_retrieved"
+                    })
+
+                with open(metadata_path, "wb") as f:
+                    pickle.dump(self.metadata, f)
+
+                print(f"[TeamA Engine] FAISS database updated! Total vectors: {self.faiss_index.ntotal}")
+        except Exception as e:
+            print(f"[TeamA Engine] Warning: Failed to dynamically update FAISS index: {e}")
+
+# ── Alias for backward compatibility ────────────────────────────
+EvidenceRetrievalPipeline = TeamARetrievalPipeline
+
+# Quick standalone test execution
 if __name__ == "__main__":
-    INDEX_PATH    = "index/fake_news.faiss"
-    METADATA_PATH = "index/metadata.pkl"
+    INDEX_PATH    = os.path.join(BASE_DIR, "data", "faiss_index.bin")
+    METADATA_PATH = os.path.join(BASE_DIR, "data", "faiss_metadata.pkl")
+    API_KEY       = os.getenv("TAVILY_API_KEY", "")
 
-    try:
-        agent = EnhancedRetrievalAgent(
-            index_path=INDEX_PATH,
-            metadata_path=METADATA_PATH,
-            bm25_weight=0.3,
-            semantic_weight=0.7,
-            temporal_weight=0.1,
-            credibility_weight=0.15,
-            confidence_threshold=0.4,
-            temporal_decay_days=365,
-        )
+    pipeline = TeamARetrievalPipeline(
+        index_path=INDEX_PATH,
+        metadata_path=METADATA_PATH,
+        tavily_api_key=API_KEY
+    )
 
-        test_queries = [
-            "The economy bled $24 billion due to the government shutdown.",
-            "Vaccines cause autism in children.",
-            "Hillary Clinton email scandal corruption.",
-        ]
+    test_claim = "COVID-19 vaccines cause infertility"
+    print(f"\n--- Processing Claim: '{test_claim}' ---")
+    result = pipeline.process_claim(test_claim, top_k=5)
 
-        for query in test_queries:
-            print("=" * 65)
-            print(f"QUERY: {query}")
-            print("=" * 65)
-            results = agent.search(query, top_k=3)
-
-            if not results:
-                print("  [Confidence Gate] No results met the confidence threshold.\n")
-                continue
-
-            for i, r in enumerate(results, 1):
-                print(f"  Match #{i}")
-                print(f"    Final Score  : {r['final_score']}  "
-                      f"(BM25={r['bm25_score']} | Sem={r['semantic_score']} | "
-                      f"Temp={r['temporal_score']} | Cred={r['credibility_score']})")
-                print(f"    Label        : {r['label']}")
-                print(f"    Statement    : {str(r['statement'])[:120]}...")
-                print(f"    Speaker      : {r['speaker']}")
-                print(f"    Context      : {r['context']}")
-                print("-" * 65)
-            print()
-
-    except FileNotFoundError:
-        print(
-            "Error: FAISS index or metadata not found.\n"
-            "Run `python src/embeddings/generate_index.py` first."
-        )
+    import json
+    print(json.dumps(result, indent=2, default=str))

@@ -42,40 +42,53 @@ Python packages:
 
 import io
 import re
-import cv2
 import numpy as np
-import pytesseract
 from PIL import Image
 
-# Language Detection
-from langdetect import detect, DetectorFactory
-from lingua import Language, LanguageDetectorBuilder
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    cv2 = None
+    HAS_CV2 = False
 
-# Translation
-from deep_translator import GoogleTranslator
+try:
+    import pytesseract
+    HAS_PYTESSERACT = True
+except ImportError:
+    pytesseract = None
+    HAS_PYTESSERACT = False
 
-# ----------------------------------------------------------------
-# IMPORTANT: Uncomment and set this if Tesseract is NOT in PATH
-# Windows example:
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-# ----------------------------------------------------------------
+try:
+    from langdetect import detect, DetectorFactory
+    DetectorFactory.seed = 0
+    HAS_LANGDETECT = True
+except ImportError:
+    detect = None
+    HAS_LANGDETECT = False
 
-# Make langdetect deterministic across runs
-DetectorFactory.seed = 0
+try:
+    from lingua import Language, LanguageDetectorBuilder
+    _lingua_detector = LanguageDetectorBuilder.from_languages(
+        Language.ENGLISH,
+        Language.HINDI,
+        Language.TELUGU,
+        Language.TAMIL,
+        Language.URDU,
+        Language.BENGALI,
+        Language.MARATHI,
+    ).build()
+    HAS_LINGUA = True
+except ImportError:
+    _lingua_detector = None
+    HAS_LINGUA = False
 
-# ----------------------------------------------------------------
-# Lingua detector — best for short OCR text (2–5 lines from a poster)
-# Supports all languages used in the project
-# ----------------------------------------------------------------
-_lingua_detector = LanguageDetectorBuilder.from_languages(
-    Language.ENGLISH,
-    Language.HINDI,
-    Language.TELUGU,
-    Language.TAMIL,
-    Language.URDU,
-    Language.BENGALI,
-    Language.MARATHI,
-).build()
+try:
+    from deep_translator import GoogleTranslator
+    HAS_TRANSLATOR = True
+except ImportError:
+    GoogleTranslator = None
+    HAS_TRANSLATOR = False
 
 # ----------------------------------------------------------------
 # Language Code Reference
@@ -99,28 +112,14 @@ TESSERACT_LANG = "eng+hin+tel+tam+urd+ben+mar"
 # ================================================================
 
 def preprocess_image(image: Image.Image) -> Image.Image:
-    """
-    Applies OpenCV preprocessing to improve OCR accuracy on noisy
-    photos, posters, and screenshots:
-
-    1. Convert to numpy array (OpenCV format).
-    2. Grayscale — reduces color complexity.
-    3. FastNlMeansDenoising — removes photo noise before thresholding.
-    4. Adaptive Threshold — handles uneven lighting / shadows.
-    5. Return as PIL Image for Tesseract.
-    """
+    if not HAS_CV2:
+        return image
     img = np.array(image)
-
-    # Handle images that may already be greyscale (2D array)
     if len(img.shape) == 2:
         gray = img
     else:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # Denoise
     denoised = cv2.fastNlMeansDenoising(gray, h=10)
-
-    # Adaptive threshold → sharp black text on white background
     thresh = cv2.adaptiveThreshold(
         denoised, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -128,115 +127,86 @@ def preprocess_image(image: Image.Image) -> Image.Image:
         blockSize=11,
         C=2
     )
-
     return Image.fromarray(thresh)
 
-
-# ================================================================
-# STEP 2: TESSERACT OCR
-# ================================================================
-
 def run_ocr(image_bytes: bytes) -> str:
-    """
-    Runs multi-language Tesseract OCR on the given image bytes.
+    # Attempt pytesseract first if module is present
+    if HAS_PYTESSERACT:
+        try:
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            preprocessed = preprocess_image(image)
+            text = pytesseract.image_to_string(
+                preprocessed,
+                lang=TESSERACT_LANG,
+                config="--psm 6 --oem 3"
+            )
+            if text.strip():
+                return text.strip()
+        except Exception as e:
+            print(f"[OCRProcessor] Local Tesseract OCR failed: {e}. Falling back to OCR.space API...")
 
-    Supported languages: English, Hindi, Telugu, Tamil, Urdu, Bengali, Marathi.
-
-    :param image_bytes: Raw image bytes (from file upload or Telegram).
-    :return: Raw extracted text string (may be non-English).
-    """
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    image = preprocess_image(image)
-
+    # Fallback to OCR.space free API
+    print("[OCRProcessor] Using OCR.space API fallback...")
     try:
-        # PSM 6: Assume uniform block of text (good for posters/screenshots)
-        # OEM 3: Default OCR engine (LSTM + legacy)
-        text = pytesseract.image_to_string(
-            image,
-            lang=TESSERACT_LANG,
-            config="--psm 6 --oem 3"
+        import requests
+        payload = {
+            'apikey': 'helloworld',
+            'language': 'eng',
+        }
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            files={'filename': ('image.png', image_bytes, 'image/png')},
+            data=payload,
+            timeout=15
         )
-        return text.strip()
-    except pytesseract.TesseractNotFoundError:
-        print(
-            "[OCRProcessor] CRITICAL: Tesseract not found.\n"
-            "Install Tesseract and set the path in ocr_processor.py."
-        )
-        return ""
-    except Exception as e:
-        print(f"[OCRProcessor] Tesseract OCR failed: {e}")
-        return ""
+        if response.status_code == 200:
+            result = response.json()
+            parsed_results = result.get("ParsedResults", [])
+            if parsed_results:
+                text = parsed_results[0].get("ParsedText", "")
+                return text.strip()
+            else:
+                print(f"[OCRProcessor] OCR.space API response parsed results empty: {result}")
+        else:
+            print(f"[OCRProcessor] OCR.space API returned HTTP {response.status_code}: {response.text}")
+    except Exception as ex:
+        print(f"[OCRProcessor] OCR.space API fallback failed: {ex}")
 
+    return ""
 
-# ================================================================
-# STEP 3: LANGUAGE DETECTION
-# ================================================================
 
 def detect_language(text: str) -> str:
-    """
-    Detects the language of the given text.
-
-    Strategy:
-    - Short text (< 100 words): Use lingua (more accurate for short text).
-    - Long text  (≥ 100 words): Use langdetect (faster for longer content).
-
-    :param text: Extracted OCR text.
-    :return: ISO 639-1 language code string (e.g., 'en', 'hi', 'te').
-             Defaults to 'en' on failure.
-    """
     if not text or not text.strip():
         return "en"
-
     word_count = len(text.split())
-
-    if word_count < 100:
-        # lingua is more accurate for short OCR outputs like posters
-        result = _lingua_detector.detect_language_of(text)
-        if result:
-            return result.iso_code_639_1.name.lower()
-        return "en"
-    else:
-        # langdetect is faster for longer article-style OCR output
+    if word_count < 100 and HAS_LINGUA and _lingua_detector is not None:
+        try:
+            result = _lingua_detector.detect_language_of(text)
+            if result:
+                return result.iso_code_639_1.name.lower()
+        except Exception:
+            pass
+    if HAS_LANGDETECT and detect is not None:
         try:
             return detect(text)
         except Exception:
-            return "en"
-
-
-# ================================================================
-# STEP 4: TRANSLATION TO ENGLISH
-# ================================================================
+            pass
+    return "en"
 
 def translate_to_english(text: str, source_lang: str, chunk_size: int = 4000) -> str:
-    """
-    Translates the extracted text to English using Google Translate.
-
-    - Skips translation if the detected language is already English.
-    - Splits long text into chunks (Google Translate has ~5000 char limit per call).
-
-    :param text: Text to translate.
-    :param source_lang: ISO 639-1 source language code (e.g., 'hi').
-    :param chunk_size: Max characters per translation chunk (default 4000).
-    :return: Translated English text, or original text if translation fails.
-    """
-    if source_lang == "en":
-        return text  # No translation needed
-
+    if source_lang == "en" or not HAS_TRANSLATOR or GoogleTranslator is None:
+        return text
     if not text.strip():
         return text
-
-    # Split into chunks to respect Google Translate's character limit
     chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
     translated_chunks = []
-
     for idx, chunk in enumerate(chunks, start=1):
         try:
             translated = GoogleTranslator(source=source_lang, target="en").translate(chunk)
             translated_chunks.append(translated)
         except Exception as e:
             print(f"[OCRProcessor] Translation failed for chunk {idx}: {e}")
-            translated_chunks.append(chunk)  # Fallback: use original chunk
-
+            translated_chunks.append(chunk)
     return " ".join(translated_chunks)
 
 

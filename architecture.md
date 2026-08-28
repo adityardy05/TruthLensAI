@@ -1,114 +1,96 @@
-# Project Architecture: Fake News Detection
+# Fake News Detection Architecture (TruthLens v2.0 - Team A Specification)
 
-## 1. Project Overview
-The Fake News Detection project is an AI-driven system designed to analyze news claims, statements, or articles and determine their authenticity. By combining external knowledge retrieval with advanced machine learning classifiers, the system acts as an automated fact-checker capable of mitigating the spread of misinformation.
+## 1. Overview
+TruthLens is an AI-driven automated fact-checking system designed to evaluate suspicious claims, statements, and multimodal inputs (images/text) in real-time.
 
-## 2. Objective
-To build a highly accurate, scalable Retrieval-Augmented Generation (RAG) system that can:
-1. Accept suspicious claims as input.
-2. Rapidly retrieve relevant, factual evidence from a vast database of trusted sources.
-3. Pass this contextual evidence to a classification model to output a final truthfulness verdict.
+This document describes **Team A's responsibilities**:
+- **Module 0**: OCR & Multilingual Processing
+- **Module A**: Data Ingestion, Retrieval & 4-Factor Evidence Reliability Scoring $R(d)$
 
-## 3. Dataset Overview
-The system relies on the following dataset acting as the evidence library and training ground:
-* **LIAR Dataset:** Contains over 12,800 short, human-labeled statements spanning six degrees of truthfulness (from *pants-fire* to *true*). This serves as a rigorous testing ground for processing short-form queries and verifying political claims.
+---
 
-## 4. System Architecture (Retrieval Module)
-The Retrieval Module operates entirely independently of the final classifier, acting as the search engine for the AI.
+## 2. Team A System Architecture
 
 ```text
-=======================================================================
-                   RETRIEVAL MODULE ARCHITECTURE
-=======================================================================
-
-      [ Team B / User ]
-             │
-             ▼
-+-------------------------+
-|     1. User Query       |  (e.g., A suspicious claim)
-+-------------------------+
-             │
-             ▼
-+-------------------------+
-|   2. Text Cleaning      |  (Remove noise, lowercase, normalize)
-+-------------------------+
-             │
-             ▼
-+-------------------------+
-| 3. Embedding Generation |  (Convert text into a dense vector)
-+-------------------------+
-             │
-             ▼
-+-------------------------+      +====================================+
-|  4. FAISS Vector Search | <--- |  PRE-COMPUTED EVIDENCE DATABASE    |
-|   (Cosine Similarity /  |      |  (LIAR Dataset converted to        |
-|     L2 Distance)        |      |   Vectors)                         |
-+-------------------------+      +====================================+
-             │
-             ▼
-+-------------------------+
-|  5. Retrieve Top-K      |  (Fetch the 5 most similar articles)
-|   Similar Articles      |
-+-------------------------+
-             │
-             ▼
-+-------------------------+
-| 6. Return Results to    |  (Send JSON payload with evidence)
-|  Classification Module  |
-+-------------------------+
-             │
-             ▼
-      [ Team B / AI ]
+┌─────────────────────────────────────────────────────────────────────┐
+│                         User Input Layer                            │
+│  (Telegram Chat, Image with text, Plain text claim)                 │
+└────────────────────────┬────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│               MODULE 0: OCR & MULTILINGUAL PROCESSING               │
+│                                                                      │
+│  ┌──────────────────┐  ┌─────────────────┐  ┌────────────────────┐ │
+│  │ Image Preprocess │  │ Language Support│  │ Language Detection │ │
+│  │ (OpenCV Denoise, │  │ (Hindi, Telugu, │  │ (lingua /          │ │
+│  │  Adaptive Thresh)│  │  Tamil, Urdu,   │  │  langdetect)       │ │
+│  └────────┬─────────┘  │  Bengali, Mar,  │  └────────────────────┘ │
+│           │            │  English)       │                          │
+│           ▼            └─────────────────┘  ┌────────────────────┐ │
+│  ┌──────────────────┐                       │ Translation        │ │
+│  │ Tesseract OCR    │                       │ (deep-translator)  │ │
+│  │ (Multi-lang pack)│                       │ -> English Claim   │ │
+│  └──────────────────┘                       └────────────────────┘ │
+└────────────────────────┬────────────────────────────────────────────┘
+                         │
+                         │ English-Normalized Claim
+                         ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│          MODULE A: DATA INGESTION & RETRIEVAL (Team A)              │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ Evidence Retrieval                                             │ │
+│  │ ├─ Tavily API (Web Search) + Trafilatura (Scraper Fallback)    │ │
+│  │ └─ FAISS Vector Store (Historical Dataset Claims)              │ │
+│  └────────────────────────┬───────────────────────────────────────┘ │
+│                           ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ 4-Factor Evidence Scoring: R(d) = Σ λᵢsᵢ  (λᵢ = 0.25)           │ │
+│  │                                                                │ │
+│  │  s₁ = BM25(claim, evidence)          λ₁ = 0.25 (lexical)     │ │
+│  │  s₂ = cosine_sim(claim, evidence)    λ₂ = 0.25 (semantic)    │ │
+│  │       sentence-transformers all-MiniLM-L6-v2                  │ │
+│  │                                                                │ │
+│  │  s₃ = domain_credibility(source)     λ₃ = 0.25               │ │
+│  │       3-Layer Hybrid: Hardlist → MBFC cache → Dynamic fallback │ │
+│  │                       (TLD, HTTPS, WHOIS heuristics)           │ │
+│  │                                                                │ │
+│  │  s₄ = recency_score(pub_date)        λ₄ = 0.25 (temporal)    │ │
+│  │       <30 days=1.0  <1yr=0.6  >5yr=0.1                       │ │
+│  │                                                                │ │
+│  │ Filter: Keep top-10 by R(d) combined_reliability score         │ │
+│  └────────────────────────┬───────────────────────────────────────┘ │
+│                           ▼                                          │
+│  OUTPUT: Inter-Team Data Contract JSON (Module A -> Module B)         │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## 5. Folder Structure
-The project is modularized to ensure separation of concerns between teams and components.
+---
 
-```text
-fake_news_detection/
-│
-├── api/                # FastAPI/Flask endpoints for the Retrieval Module
-├── config/             # Project settings, environment variables, API keys
-├── data/               # Raw and processed datasets (LIAR)
-├── docs/               # Architecture documents and project documentation
-├── evaluation/         # Retrieval metrics (e.g., Recall@5, MRR)
-├── index/              # Compiled FAISS vector databases (.faiss files)
-├── logs/               # Application and error logging
-├── models/             # Downloaded embedding models (e.g., HuggingFace transformers)
-├── src/                
-│   ├── embeddings/     # Scripts for vectorization
-│   ├── preprocessing/  # Data cleaning and formatting scripts
-│   └── scraping/       # Scripts for live web-scraping of evidence
-│
-├── requirements.txt    # Python dependencies
-└── .gitignore          # Git exclusion rules
-```
+## 3. Evidence Scoring Formula: $R(d)$
 
-## 6. Data Flow
-1. **Ingestion:** Raw datasets are cleaned in `src/preprocessing/` and passed to `src/embeddings/`.
-2. **Vectorization:** Text is converted into embeddings and stored persistently in the `index/` folder.
-3. **Query:** A claim is received via the `api/`.
-4. **Search:** The claim is embedded on the fly and compared against the FAISS index.
-5. **Retrieval:** The `Top-K` matching documents are extracted from the `data/` folder based on the FAISS indices.
-6. **Response:** A JSON package containing the evidence is returned.
+Team A owns all evidence scoring and outputs a unified `combined_reliability` score $R(d)$ for every retrieved evidence document:
 
-## 7. Technologies
-* **Language:** Python 3.x
-* **Web Framework:** FastAPI or Flask
-* **Vector Database:** FAISS (Facebook AI Similarity Search)
-* **Embedding Models:** HuggingFace `SentenceTransformers` (e.g., `all-MiniLM-L6-v2`) or OpenAI API
-* **Data Manipulation:** Pandas, NumPy
-* **NLP Processing:** NLTK, spaCy, or regular expressions
+$$R(d) = 0.25 \cdot s_1 + 0.25 \cdot s_2 + 0.25 \cdot s_3 + 0.25 \cdot s_4$$
 
-## 8. Future Modules
-To scale the system beyond static datasets, future iterations of the Retrieval module will include:
-* **Live Web Scraping Pipeline:** Integrating NewsAPI and BeautifulSoup to fetch real-time evidence for claims that are not present in the static LIAR database.
-* **Knowledge Graph Integration:** Expanding retrieval to include structured factual graphs, identifying relationships between known malicious domains or highly-correlated fake news spreaders.
+1. $s_1$ (**BM25 Score**): Normalized TF-IDF lexical keyword matching $[0, 1]$.
+2. $s_2$ (**Semantic Cosine Score**): Cosine similarity using `sentence-transformers/all-MiniLM-L6-v2`.
+3. $s_3$ (**Domain Credibility Score**):
+   - **Layer 1 (Hardlist)**: Fast lookup for authoritative sites (`who.int`, `reuters.com`, `factcheck.org`, `snopes.com`, `thehindu.com`, etc., score 0.80–0.98) and known misinformation sites ($<0.30$).
+   - **Layer 2 (MBFC Cache)**: Pre-computed rating cache for major global news outlets.
+   - **Layer 3 (Dynamic Fallback)**: Dynamic heuristic evaluator checking TLDs (`.gov`/`.edu`/`.org`/`.com`), HTTPS, domain hyphens/numbers, and domain age for unknown Indian & global sites.
+4. $s_4$ (**Recency Score**):
+   - $< 30$ days: `1.0`
+   - $< 365$ days (1 year): Interpolated `1.0 -> 0.6`
+   - $< 1825$ days (5 years): Interpolated `0.6 -> 0.1`
+   - $> 1825$ days: `0.1`
 
-## 9. Team Responsibilities
-* **Team A (Retrieval / RAG Module):**
-  * Responsible for data preprocessing, building the FAISS index, generating embeddings, and ensuring search speed/accuracy.
-  * Must deliver a reliable API endpoint that returns highly relevant textual evidence for any given claim.
-* **Team B (Classification Module):**
-  * Responsible for designing, training, and evaluating the final deep learning model (e.g., BERT, RoBERTa).
-  * Must consume the evidence provided by Team A and output a final confidence score and truthfulness label.
+---
+
+## 4. Team Responsibilities
+- **Team A (Retrieval & OCR Module)**:
+  - Responsible for OCR, language detection, translating non-English inputs, retrieving live web + vector evidence, and scoring evidence using the 4-factor formula $R(d)$.
+  - Provides Flask API endpoints (`/retrieve`, `/process_image`, `/health`) serving the standardized Module A $\rightarrow$ Module B contract JSON.
+- **Team B (Agentic Reasoning & LangGraph)**:
+  - Consumes Team A's output directly using `combined_reliability` scores. Runs multi-persona agentic reasoning rounds and generates truthfulness verdicts.
