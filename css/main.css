@@ -1,0 +1,42 @@
+/* ============================================================
+   TruthLens · main.css
+   Base layer: page background, the glass surface, view switching
+   and the shared fade-in entrance.
+
+   Design tokens (colours, fonts, spacing, radii) are NOT here —
+   they live in the Tailwind config block in index.html, which is
+   the Stitch design system and must not be edited.
+   ============================================================ */
+
+body { background-color: #f9f9f7; }
+
+.glass-panel {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(32, 22, 19, 0.08);
+    box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.04);
+}
+
+.neon-glow:hover {
+    box-shadow: 0 4px 15px -3px rgba(0, 240, 255, 0.4);
+    border-bottom: 2px solid #00F0FF;
+}
+
+.text-neon { color: #00F0FF; }
+.bg-neon { background-color: #00F0FF; }
+
+/* ---------- SPA view switching ---------- */
+/* Every top-level screen carries .view-content; exactly one is
+   visible at a time. switchView() in js/navigation.js owns this. */
+.view-hidden {
+    display: none !important;
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

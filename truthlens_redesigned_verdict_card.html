@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TruthLens - Verifying the future</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Hanken Grotesk', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', "Liberation Mono", "Courier New", 'monospace'],
+          },
+          colors: {
+            brand: {
+              red: '#ef4444',
+              'red-light': '#fee2e2',
+              dark: '#0f172a',
+              gray: '#64748b',
+              'gray-light': '#f1f5f9',
+            }
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="custom-styles">
+    body {
+      background-color: #fafafa;
+    }
+    
+    /* Radial Progress Bar */
+    .radial-progress {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: conic-gradient(#ef4444 91%, #fee2e2 0);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .radial-progress::before {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      background-color: white;
+      border-radius: 50%;
+    }
+    .radial-progress-text {
+      position: relative;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body class="font-sans text-brand-dark antialiased">
+<!-- BEGIN: Navigation -->
+<nav class="border-b border-gray-200 bg-white px-6 py-4 sticky top-0 z-50">
+<div class="max-w-6xl mx-auto flex items-center justify-between">
+<div class="flex items-center gap-2">
+<i class="w-6 h-6 text-brand-dark" data-lucide="shield-check"></i>
+<span class="text-xl font-bold tracking-tight">TruthLens</span>
+</div>
+<div class="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
+<a class="hover:text-brand-dark transition-colors" href="#">Verify</a>
+<a class="hover:text-brand-dark transition-colors" href="#">How It Works</a>
+<a class="text-brand-dark border-b-2 border-brand-dark pb-1" href="#">Evidence</a>
+<a class="hover:text-brand-dark transition-colors" href="#">About</a>
+</div>
+<div>
+<button class="bg-brand-dark text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-gray-800 transition-colors">
+          Get Started
+        </button>
+</div>
+</div>
+</nav>
+<!-- END: Navigation -->
+<!-- BEGIN: Main Content -->
+<main class="max-w-4xl mx-auto px-6 py-12">
+<!-- BEGIN: Redesigned Verdict Card -->
+<section class="bg-white border border-gray-200 rounded-2xl p-6 md:p-8 shadow-sm mb-12 flex flex-col md:flex-row gap-8 items-center md:items-start" data-purpose="verdict-card">
+<!-- Left: Verdict & Confidence -->
+<div class="flex flex-col items-center justify-center shrink-0 w-40">
+<div class="radial-progress mb-4">
+<div class="radial-progress-text flex flex-col items-center">
+<span class="text-2xl font-bold text-brand-dark leading-none">91<span class="text-sm">%</span></span>
+</div>
+</div>
+<div class="text-brand-red font-bold tracking-widest text-lg uppercase mb-1">Fake</div>
+<div class="text-[10px] text-gray-500 font-medium uppercase tracking-wide">High Confidence</div>
+</div>
+<!-- Middle: Explanation & Stats -->
+<div class="flex-grow text-center md:text-left">
+<p class="text-gray-800 text-lg leading-relaxed mb-6 font-medium">
+          No official press release or gazette notification supports this claim, and it doesn't appear on any ministry website.
+        </p>
+<div class="flex items-center justify-center md:justify-start gap-6 text-sm text-gray-500 font-mono">
+<div class="flex items-center gap-1.5 bg-gray-50 px-3 py-1 rounded-md border border-gray-100">
+<i class="w-4 h-4" data-lucide="file-text"></i>
+<span>Sources: <strong class="text-brand-dark ml-1">9</strong></span>
+</div>
+</div>
+</div>
+<!-- Right: Actions -->
+<div class="flex flex-col gap-3 w-full md:w-auto shrink-0">
+<button class="flex items-center justify-between w-full md:w-56 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors text-brand-dark group">
+<div class="flex items-center gap-2">
+<i class="w-4 h-4 text-gray-400 group-hover:text-brand-dark" data-lucide="download"></i>
+            Download Full Report
+          </div>
+<i class="w-4 h-4 text-gray-400" data-lucide="chevron-down"></i>
+</button>
+<button class="w-full md:w-56 px-4 py-2.5 bg-brand-dark text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors shadow-sm">
+          Analyze another claim
+        </button>
+</div>
+</section>
+<!-- END: Redesigned Verdict Card -->
+<!-- BEGIN: Claim Breakdown (Preserved from Original) -->
+<section>
+<h2 class="text-3xl font-bold mb-6 tracking-tight">Claim Breakdown</h2>
+<div class="space-y-4 bg-white border border-gray-100 rounded-2xl p-6 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)]">
+<!-- Breakdown Item 1 -->
+<div class="bg-[#f8f9fa] border border-gray-200 rounded-xl p-5">
+<div class="flex items-start gap-4">
+<div class="text-gray-400 font-mono text-sm mt-0.5">01</div>
+<div>
+<p class="text-gray-800 font-medium mb-1">Government made an official announcement</p>
+<div class="flex items-center gap-1.5 text-brand-red text-sm font-medium">
+<i class="w-3.5 h-3.5" data-lucide="x"></i>
+<span>Not supported</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Breakdown Item 2 -->
+<div class="bg-[#f8f9fa] border border-gray-200 rounded-xl p-5">
+<div class="flex items-start gap-4">
+<div class="text-gray-400 font-mono text-sm mt-0.5">02</div>
+<div>
+<p class="text-gray-800 font-medium mb-1">Electricity would be free for all households</p>
+<div class="flex items-center gap-1.5 text-brand-red text-sm font-medium">
+<i class="w-3.5 h-3.5" data-lucide="x"></i>
+<span>Not supported</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Breakdown Item 3 -->
+<div class="bg-[#f8f9fa] border border-gray-200 rounded-xl p-5">
+<div class="flex items-start gap-4">
+<div class="text-gray-400 font-mono text-sm mt-0.5">03</div>
+<div>
+<p class="text-gray-800 font-medium mb-1">Policy takes effect next month</p>
+<div class="flex items-center gap-1.5 text-gray-500 text-sm font-medium">
+<i class="w-3.5 h-3.5" data-lucide="help-circle"></i>
+<span>Unverified</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- END: Claim Breakdown -->
+</main>
+<!-- END: Main Content -->
+<script data-purpose="icon-initialization">
+    lucide.createIcons();
+  </script>
+</body></html>
