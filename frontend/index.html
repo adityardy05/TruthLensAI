@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TruthLens - Verifying the future of information</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Stylesheets: design-token config stays inline below (Tailwind CDN needs it
+     before it runs); everything else lives in css/ -->
+<link href="css/main.css" rel="stylesheet"/>
+<link href="css/components.css" rel="stylesheet"/>
+<link href="css/responsive.css" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "error-container": "#ffdad6",
+                "surface-dim": "#dadad8",
+                "tertiary-container": "#002022",
+                "canvas-alt": "#ECEBE5",
+                "inverse-primary": "#d5c2bd",
+                "on-primary-container": "#91807c",
+                "on-tertiary-fixed": "#002022",
+                "on-error": "#ffffff",
+                "on-primary": "#ffffff",
+                "surface-container-high": "#e8e8e6",
+                "primary": "#000000",
+                "on-secondary-container": "#4e4783",
+                "inverse-on-surface": "#f1f1ef",
+                "on-primary-fixed": "#231916",
+                "primary-container": "#231916",
+                "secondary-container": "#c2b9fd",
+                "tertiary-fixed-dim": "#00dbe9",
+                "on-tertiary-fixed-variant": "#004f54",
+                "on-secondary": "#ffffff",
+                "on-surface": "#1a1c1b",
+                "on-error-container": "#93000a",
+                "on-tertiary-container": "#00929b",
+                "on-secondary-fixed-variant": "#463f7a",
+                "surface-container": "#eeeeec",
+                "tertiary-fixed": "#7df4ff",
+                "surface-bright": "#f9f9f7",
+                "on-tertiary": "#ffffff",
+                "secondary": "#5e5793",
+                "surface-variant": "#e2e3e1",
+                "secondary-fixed": "#e5deff",
+                "surface-tint": "#6a5b57",
+                "glass-stroke": "rgba(32, 22, 19, 0.08)",
+                "surface": "#f9f9f7",
+                "secondary-fixed-dim": "#c8bfff",
+                "on-secondary-fixed": "#1a104c",
+                "on-background": "#1a1c1b",
+                "surface-container-low": "#f4f4f2",
+                "text-muted": "#736761",
+                "tertiary": "#000000",
+                "surface-container-lowest": "#ffffff",
+                "on-surface-variant": "#4e4542",
+                "error": "#ba1a1a",
+                "background": "#f9f9f7",
+                "inverse-surface": "#2f3130",
+                "primary-fixed": "#f2ded9",
+                "outline": "#807571",
+                "primary-fixed-dim": "#d5c2bd",
+                "outline-variant": "#d2c3c0",
+                "on-primary-fixed-variant": "#514440",
+                "surface-container-highest": "#e2e3e1"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "container-max": "1280px",
+                "gutter": "24px",
+                "margin-desktop": "40px",
+                "base": "8px",
+                "margin-mobile": "16px"
+        },
+        "fontFamily": {
+                "headline-lg-mobile": [
+                        "Plus Jakarta Sans"
+                ],
+                "label-sm": [
+                        "JetBrains Mono"
+                ],
+                "headline-lg": [
+                        "Plus Jakarta Sans"
+                ],
+                "headline-md": [
+                        "Plus Jakarta Sans"
+                ],
+                "label-md": [
+                        "JetBrains Mono"
+                ],
+                "display": [
+                        "Plus Jakarta Sans"
+                ],
+                "body-lg": [
+                        "Plus Jakarta Sans"
+                ],
+                "body-md": [
+                        "Plus Jakarta Sans"
+                ]
+        },
+        "fontSize": {
+                "headline-lg-mobile": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "fontWeight": "700"
+                        }
+                ],
+                "label-sm": [
+                        "12px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-lg": [
+                        "40px",
+                        {
+                                "lineHeight": "48px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "headline-md": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "label-md": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "letterSpacing": "0.02em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "display": [
+                        "64px",
+                        {
+                                "lineHeight": "72px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "800"
+                        }
+                ],
+                "body-lg": [
+                        "18px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "body-md": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+</head>
+<body class="font-body-md text-on-surface antialiased selection:bg-tertiary-fixed selection:text-tertiary-fixed-dim bg-background flex flex-col min-h-screen">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl border-b border-glass-stroke shadow-sm h-20 px-margin-mobile md:px-margin-desktop flex justify-between items-center transition-all duration-300">
+<div class="flex items-center gap-2 cursor-pointer" onclick="switchView('home')">
+<span class="material-symbols-outlined text-primary text-3xl">verified_user</span>
+<span class="font-headline-md text-headline-md font-extrabold tracking-tighter text-primary">TruthLens</span>
+</div>
+<div class="hidden md:flex gap-8">
+<a class="text-primary font-bold border-b-2 border-primary pb-1 cursor-pointer" id="nav-verify" onclick="switchView('home')">Verify</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 cursor-pointer" id="nav-how" onclick="navHowItWorks()">How It Works</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 cursor-pointer" id="nav-evidence" onclick="navEvidence()">Evidence</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 cursor-pointer" id="nav-about" onclick="switchView('about')">About</a>
+</div>
+<div class="flex gap-4">
+<button class="px-5 py-2 bg-primary text-on-primary rounded-full font-label-md text-label-md hover:bg-on-surface-variant transition-all cursor-pointer" onclick="startVerifying()">Get Started</button>
+</div>
+</nav>
+<!-- Main Content Container -->
+<main class="pt-32 pb-24 px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto space-y-32 flex-grow w-full">
+<!-- View: Home -->
+<div class="view-content fade-in" id="view-home">
+<!-- Hero Section & Claim Input -->
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+<div class="space-y-8 claim-block is-centered" id="claim-block">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-tertiary-fixed/10 text-tertiary-container font-label-sm text-label-sm border border-tertiary-fixed/20">
+<span class="w-2 h-2 rounded-full bg-tertiary-fixed-dim animate-pulse"></span>
+                        Live Verification Engine Active
+                    </div>
+<h1 class="font-display text-display text-primary leading-tight">
+                        What claim would you like to check?
+                    </h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
+                        Paste a claim, drop in an image, or share a link. Checked against sources by three independent reviewers.
+                    </p>
+<div class="glass-panel p-6 rounded-2xl relative overflow-hidden group hover:shadow-md transition-shadow duration-300 bg-white">
+<div class="flex gap-3 mb-6">
+<button class="flex items-center gap-2 px-4 py-2 bg-surface rounded-lg border border-glass-stroke font-label-md text-label-md text-primary shadow-sm hover:border-primary transition-colors" id="tab-text" onclick="setInputMode('text')">
+<span class="material-symbols-outlined text-sm">text_fields</span> text
+                            </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface/50 rounded-lg border border-glass-stroke font-label-md text-label-md text-on-surface-variant hover:bg-surface transition-colors" id="tab-image" onclick="setInputMode('image')">
+<span class="material-symbols-outlined text-sm">image</span> image
+                            </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface/50 rounded-lg border border-glass-stroke font-label-md text-label-md text-on-surface-variant hover:bg-surface transition-colors" id="tab-url" onclick="setInputMode('url')">
+<span class="material-symbols-outlined text-sm">link</span> url
+                            </button>
+</div>
+<!-- Text mode -->
+<div id="mode-text">
+<textarea class="w-full bg-transparent border-none focus:ring-0 p-0 font-body-lg text-body-lg text-primary placeholder:text-surface-tint resize-none h-32 focus:outline-none" id="claim-input" placeholder="Enter claim here...">The government announced free electricity for every household starting next month.</textarea>
+<div class="text-right font-label-sm text-text-muted text-xs mt-1 pr-14" id="char-counter">0 / 1000 characters</div>
+</div>
+<!-- Image mode -->
+<div class="hidden" id="mode-image">
+<div class="border-2 border-dashed border-glass-stroke rounded-xl p-8 text-center cursor-pointer hover:border-outline transition-colors" onclick="document.getElementById('img-upload').click()">
+<div id="img-placeholder">
+<span class="material-symbols-outlined text-3xl text-text-muted mb-2 block">upload_file</span>
+<p class="font-body-md text-on-surface-variant text-sm">Drop an image or click to upload</p>
+<p class="font-label-sm text-text-muted text-xs mt-1">PNG, JPG · max 5MB</p>
+</div>
+<img alt="" class="hidden w-full max-h-40 object-cover rounded-lg border border-glass-stroke" id="img-thumb"/>
+<p class="hidden font-label-sm text-text-muted text-xs mt-2" id="img-name"></p>
+</div>
+<input accept="image/png,image/jpeg" class="hidden" id="img-upload" onchange="handleImageUpload(event)" type="file"/>
+<div class="hidden mt-4 space-y-3" id="img-preview">
+<div class="p-3 bg-surface-container-low rounded-lg border border-glass-stroke">
+<p class="font-label-sm text-text-muted text-xs mb-1">Extracted text (OCR mock):</p>
+<textarea class="w-full bg-transparent text-sm font-body-md text-on-surface resize-none focus:ring-0 border-none focus:outline-none" id="ocr-text" rows="3">The government announced free electricity for every household starting next month.</textarea>
+</div>
+<button class="text-xs text-text-muted hover:text-error transition-colors font-label-sm" onclick="removeImage()">Remove image</button>
+</div>
+</div>
+<!-- URL mode -->
+<div class="hidden" id="mode-url">
+<div class="flex gap-2">
+<div class="flex-1 flex items-center gap-2 bg-surface rounded-lg border border-glass-stroke px-3">
+<span class="material-symbols-outlined text-sm text-text-muted">link</span>
+<input class="flex-1 bg-transparent border-none focus:ring-0 font-body-md text-sm py-3 text-primary placeholder:text-surface-tint focus:outline-none" id="url-input" placeholder="https://example.com/article" type="url"/>
+</div>
+<button class="px-4 py-2 bg-surface border border-glass-stroke rounded-lg font-label-md text-sm hover:bg-surface-variant transition-colors" onclick="fetchUrl()">Fetch</button>
+</div>
+<div class="hidden mt-3 p-3 bg-surface-container-low rounded-lg border border-glass-stroke" id="url-preview">
+<p class="font-label-sm text-text-muted text-xs mb-1">Extracted from URL:</p>
+<p class="font-body-md text-sm text-on-surface" id="url-extracted">The government announced free electricity for every household starting next month.</p>
+</div>
+<p class="text-xs text-error mt-2 hidden" id="url-error">That doesn't look like a valid URL.</p>
+</div>
+<!-- Language detection badge -->
+<div class="flex items-center justify-between mt-3">
+<div class="flex items-center gap-2 px-3 py-1 rounded-full bg-tertiary-fixed/10 border border-tertiary-fixed/20 font-label-sm text-label-sm text-tertiary-container" id="lang-badge">
+<span class="material-symbols-outlined text-sm">language</span>
+<span id="lang-text">🌐 English detected · 98%</span>
+</div>
+</div>
+<div class="absolute bottom-6 right-6">
+<button class="w-12 h-12 bg-primary text-on-primary rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg cursor-pointer hover:bg-on-surface-variant" onclick="analyzeClaim()">
+<span class="material-symbols-outlined">arrow_upward</span>
+</button>
+</div>
+</div>
+<div class="text-center">
+<span class="font-label-sm text-label-sm text-surface-tint uppercase tracking-wider block mb-2">recent</span>
+<div class="w-full py-3 glass-panel rounded-lg font-body-md text-on-surface-variant flex items-center justify-center gap-2 bg-white" id="recent-empty">
+                            claims you check will show up here.
+                            <span class="material-symbols-outlined text-sm">expand_more</span>
+</div>
+<div class="space-y-2 hidden" id="recent-list"></div>
+</div>
+</div>
+<!-- Animated Status / Result Preview -->
+<div class="relative w-full h-[600px] flex items-center justify-center scroll-mt-32 hidden fade-in" id="how-it-works">
+<!-- Status Panel (simulating the checking process) -->
+<div class="w-full max-w-md glass-panel p-8 rounded-2xl relative z-10 shadow-2xl border border-glass-stroke/50 bg-white">
+<div class="flex items-center justify-between mb-8">
+<span class="font-label-md text-label-md text-surface-tint" id="side-status-badge">checking</span>
+<div class="w-6 h-6 rounded-full border-2 border-surface-variant border-t-tertiary-fixed-dim animate-spin hidden" id="side-spinner"></div>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant italic mb-8 p-4 bg-surface rounded-lg border border-glass-stroke hidden" id="side-check-claim"></p>
+<div class="space-y-4">
+<div class="flex items-center gap-4 text-surface-tint opacity-70" id="side-step-1">
+<div class="w-5 h-5 rounded-full border-2 border-outline ml-0.5 mr-0.5"></div>
+<span class="font-body-md">Breaking down the claim</span>
+</div>
+<div class="flex items-center gap-4 text-surface-tint opacity-70" id="side-step-2">
+<div class="w-5 h-5 rounded-full border-2 border-outline ml-0.5 mr-0.5"></div>
+<span class="font-body-md">Checking sources</span>
+</div>
+<div class="flex items-center gap-4 text-surface-tint opacity-70" id="side-step-3">
+<div class="w-5 h-5 rounded-full border-2 border-outline ml-0.5 mr-0.5"></div>
+<span class="font-body-md">Consulting reviewers</span>
+</div>
+<div class="flex items-center gap-4 text-surface-tint opacity-70" id="side-step-4">
+<div class="w-5 h-5 rounded-full border-2 border-outline ml-0.5 mr-0.5"></div>
+<span class="font-body-md">Weighing confidence</span>
+</div>
+<div class="flex items-center gap-4 text-surface-tint opacity-70" id="side-step-5">
+<div class="w-5 h-5 rounded-full border-2 border-outline ml-0.5 mr-0.5"></div>
+<span class="font-body-md">Reaching a verdict</span>
+</div>
+</div>
+</div>
+<!-- Background decorative elements -->
+<div class="absolute inset-0 bg-gradient-to-tr from-surface via-transparent to-tertiary-fixed/5 rounded-full blur-3xl -z-10 opacity-50"></div>
+</div>
+</section>
+</div>
+<!-- View: Checking -->
+<div class="view-content view-hidden w-full flex flex-col items-center fade-in" id="view-checking">
+<!-- Header -->
+<div class="text-center mb-12 w-full max-w-3xl">
+<h1 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary mb-4">Verification in Progress</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Our AI agents are analyzing the claim across multiple data vectors.</p>
+</div>
+<!-- Layout Grid -->
+<div class="w-full grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
+<!-- Left Column: Claim & Timeline -->
+<div class="lg:col-span-5 flex flex-col gap-6 w-full">
+<!-- Claim Preview Card -->
+<div class="glass-panel border border-glass-stroke rounded-xl p-8 relative overflow-hidden bg-white shadow-md">
+<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-secondary-fixed to-tertiary-fixed-dim"></div>
+<div class="flex items-center gap-2 mb-4 font-label-sm text-label-sm text-secondary uppercase tracking-widest">
+<span class="material-symbols-outlined text-[16px]">format_quote</span>
+<span id="checking-claim-label">Target Claim</span>
+</div>
+<p class="font-headline-md text-headline-md text-primary leading-tight" id="checking-claim">
+                            "The government announced free electricity for every household starting next month."
+                        </p>
+</div>
+<!-- Checking Timeline -->
+<div class="glass-panel border border-glass-stroke rounded-xl p-8 flex-grow bg-white shadow-md">
+<h3 class="font-label-md text-label-md text-text-muted mb-6 uppercase tracking-wider">Analysis Pipeline</h3>
+<div class="flex flex-col gap-6 relative" id="checking-timeline">
+<!-- Connecting Line -->
+<div class="absolute left-[11px] top-2 bottom-6 w-[2px] bg-surface-variant z-0"></div>
+<!-- Steps will be updated via JS -->
+<div class="flex gap-4 relative z-10 step-item" id="step-1">
+<div class="w-6 h-6 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0 step-icon">
+<span class="material-symbols-outlined text-[14px] font-bold">check</span>
+</div>
+<div>
+<h4 class="font-body-md text-body-md text-primary font-semibold step-title">Breaking down the claim</h4>
+<p class="font-body-md text-body-md text-text-muted step-desc">Decompose Agent</p>
+</div>
+</div>
+<div class="flex gap-4 relative z-10 step-item" id="step-2">
+<div class="w-6 h-6 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0 step-icon">
+<span class="material-symbols-outlined text-[14px] font-bold">check</span>
+</div>
+<div>
+<h4 class="font-body-md text-body-md text-primary font-semibold step-title">Checking sources</h4>
+<p class="font-body-md text-body-md text-text-muted step-desc">Credibility Agent</p>
+</div>
+</div>
+<div class="flex gap-4 relative z-10 step-item" id="step-3">
+<div class="w-6 h-6 rounded-full bg-surface border-2 border-tertiary-fixed-dim flex items-center justify-center shrink-0 relative step-icon">
+<div class="w-2 h-2 rounded-full bg-tertiary-fixed-dim"></div>
+<div class="absolute inset-0 rounded-full border-2 border-tertiary-fixed-dim agent-pulse"></div>
+</div>
+<div>
+<h4 class="font-body-md text-body-md text-primary font-bold step-title">Consulting reviewers</h4>
+<p class="font-body-md text-body-md text-tertiary-fixed-dim step-desc">Evidence Agent · Running...</p>
+</div>
+</div>
+<div class="flex gap-4 relative z-10 opacity-50 step-item transition-opacity duration-500" id="step-4">
+<div class="w-6 h-6 rounded-full bg-surface border-2 border-outline flex items-center justify-center shrink-0 step-icon"></div>
+<div>
+<h4 class="font-body-md text-body-md text-on-surface-variant font-semibold step-title">Weighing confidence</h4>
+<p class="font-body-md text-body-md text-text-muted step-desc">Judge Agent</p>
+</div>
+</div>
+<div class="flex gap-4 relative z-10 opacity-50 step-item transition-opacity duration-500" id="step-5">
+<div class="w-6 h-6 rounded-full bg-surface border-2 border-outline flex items-center justify-center shrink-0 step-icon"></div>
+<div>
+<h4 class="font-body-md text-body-md text-on-surface-variant font-semibold step-title">Reaching a verdict</h4>
+<p class="font-body-md text-body-md text-text-muted step-desc">Synthesis</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Terminal Log -->
+<div class="lg:col-span-7 h-full w-full">
+<div class="bg-inverse-surface rounded-xl overflow-hidden shadow-lg h-full flex flex-col min-h-[500px]">
+<!-- Terminal Header -->
+<div class="bg-primary px-4 py-3 flex items-center justify-between border-b border-white/10">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-white/50 text-[18px]">terminal</span>
+<span class="font-label-sm text-label-sm text-white/70">Agent Processing Log</span>
+</div>
+<div class="flex gap-1.5">
+<div class="w-3 h-3 rounded-full bg-white/20"></div>
+<div class="w-3 h-3 rounded-full bg-white/20"></div>
+<div class="w-3 h-3 rounded-full bg-white/20"></div>
+</div>
+</div>
+<!-- Terminal Content -->
+<div class="p-6 font-label-md text-label-md text-inverse-on-surface font-mono whitespace-pre-wrap overflow-y-auto flex-grow flex flex-col gap-2" id="terminal-content">
+<div class="text-white/60">TruthLens Core Engine v2.4.1 initialized.</div>
+<div class="text-white/60">Connecting to vector database... [OK]</div>
+<div class="mt-4"><span class="text-secondary-fixed">[DECOMPOSE]</span> Claim → 3 sub-claims for parallel evaluation</div>
+<div>  ├─ Sub 1: "Government announced free electricity"</div>
+<div>  ├─ Sub 2: "For every household"</div>
+<div>  └─ Sub 3: "Starting next month"</div>
+<div class="mt-2"><span class="text-tertiary-fixed-dim">[CREDIBILITY]</span> Initializing domain reputation scan...</div>
+<div><span class="text-tertiary-fixed-dim">[CREDIBILITY]</span> ndtv.com → score: 0.91 · status: <span class="text-[#00F0FF]">verified</span></div>
+<div><span class="text-tertiary-fixed-dim">[CREDIBILITY]</span> thehindu.com → score: 0.94 · status: <span class="text-[#00F0FF]">verified</span></div>
+<div class="mt-2"><span class="text-secondary-fixed-dim">[RETRIEVAL]</span> Tavily search: 9 sources found across news APIs.</div>
+<div><span class="text-secondary-fixed-dim">[RETRIEVAL]</span> FAISS index: 3 semantic matches in historical policy database.</div>
+<div class="mt-2 text-white/80" id="terminal-evidence-line" style="display:none;"><span class="text-[#00dbe9]">[EVIDENCE]</span> Cross-referencing official press releases...</div>
+<div class="mt-2 text-white/80" id="terminal-judge-line" style="display:none;"><span class="text-[#c2b9fd]">[JUDGE]</span> Evaluating claim context and source consensus...</div>
+<div class="mt-1 flex items-center text-[#00dbe9]" id="terminal-cursor-line">
+                                &gt; Awaiting consensus from reviewer nodes<span class="terminal-cursor"></span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- View: Results -->
+<div class="view-content view-hidden space-y-16 fade-in" id="view-results">
+<section class="glass-panel p-6 md:p-8 rounded-2xl border border-glass-stroke bg-white shadow-md flex flex-col md:flex-row gap-8 items-center md:items-start" data-purpose="verdict-card">
+<!-- Left: Verdict & Confidence -->
+<div class="flex flex-col items-center justify-center shrink-0 w-40">
+<div class="radial-progress mb-4" id="results-confidence-radial" style="background: conic-gradient(#ef4444 91%, #fee2e2 0);">
+<div class="radial-progress-text flex flex-col items-center">
+<span class="text-2xl font-bold text-primary font-headline-md leading-none" id="results-confidence-val">91<span class="text-sm font-body-md">%</span></span>
+</div>
+</div>
+<div class="text-error font-display font-bold tracking-widest text-lg uppercase mb-1" id="results-verdict">FAKE</div>
+<div class="text-[10px] text-text-muted font-label-sm font-medium uppercase tracking-wide" id="results-confidence-label">High Confidence</div>
+</div>
+<!-- Middle: Explanation & Stats -->
+<div class="flex-grow text-center md:text-left">
+<p class="font-body-lg text-body-lg text-on-surface font-medium leading-relaxed mb-6" id="results-explanation">
+                                No official press release or gazette notification supports this claim, and it doesn't appear on any ministry website.
+                            </p>
+<div class="flex items-center justify-center md:justify-start gap-6 font-label-md text-label-md text-text-muted">
+<div class="flex items-center gap-1.5 bg-surface-container-low px-3 py-1.5 rounded-md border border-glass-stroke">
+<span class="material-symbols-outlined text-[16px] text-primary">description</span>
+<span>Sources: <strong class="text-primary font-bold ml-1" id="results-sources-count">9</strong></span>
+</div>
+</div>
+</div>
+<!-- Right: Actions -->
+<div class="flex flex-col gap-3 w-full md:w-auto shrink-0 relative">
+<button class="flex items-center justify-between w-full md:w-56 px-4 py-2.5 bg-surface border border-glass-stroke rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors text-primary group download-btn focus:outline-none" id="btn-export">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-text-muted group-hover:text-primary" id="export-icon">download</span>
+<span id="export-text">Download Full Report</span>
+</div>
+<span class="material-symbols-outlined text-[18px] text-text-muted group-focus-within:rotate-180 transition-transform">expand_more</span>
+<div class="download-menu p-2">
+<div class="px-4 py-2 hover:bg-surface-variant rounded cursor-pointer text-left font-label-md" onclick="exportReport()">Download PDF</div>
+<div class="px-4 py-2 hover:bg-surface-variant rounded cursor-pointer text-left font-label-md">Download CSV</div>
+</div>
+</button>
+<div class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white border border-glass-stroke p-4 rounded shadow-xl z-50 text-center" id="mock-pdf">
+<span class="material-symbols-outlined text-primary text-3xl">picture_as_pdf</span>
+<p class="font-label-sm mt-2">Report.pdf</p>
+</div>
+<button class="w-full md:w-56 px-4 py-2.5 bg-primary text-on-primary rounded-lg font-label-md text-label-md font-semibold hover:bg-on-surface-variant transition-colors shadow-sm cursor-pointer" onclick="resetAndGoHome()">
+                                Analyze another claim
+                            </button>
+</div>
+</section>
+<!-- Sub-Claim Breakdown -->
+<section class="space-y-4">
+<h2 class="font-headline-lg text-headline-lg text-primary border-b border-glass-stroke pb-4">Claim Breakdown</h2>
+<div class="glass-panel p-6 rounded-2xl border border-glass-stroke space-y-4 bg-white shadow-md">
+<div class="flex items-start gap-4 p-4 rounded-xl bg-surface border border-glass-stroke">
+<span class="font-label-md text-text-muted shrink-0">01</span>
+<div class="flex-1">
+<p class="font-body-md text-on-surface">Government made an official announcement</p>
+<div class="flex items-center gap-2 mt-1">
+<span class="material-symbols-outlined text-error text-sm">close</span>
+<span class="text-xs text-error font-label-sm">Not supported</span>
+</div>
+</div>
+</div>
+<div class="flex items-start gap-4 p-4 rounded-xl bg-surface border border-glass-stroke">
+<span class="font-label-md text-text-muted shrink-0">02</span>
+<div class="flex-1">
+<p class="font-body-md text-on-surface">Electricity would be free for all households</p>
+<div class="flex items-center gap-2 mt-1">
+<span class="material-symbols-outlined text-error text-sm">close</span>
+<span class="text-xs text-error font-label-sm">Not supported</span>
+</div>
+</div>
+</div>
+<div class="flex items-start gap-4 p-4 rounded-xl bg-surface border border-glass-stroke">
+<span class="font-label-md text-text-muted shrink-0">03</span>
+<div class="flex-1">
+<p class="font-body-md text-on-surface">Policy takes effect next month</p>
+<div class="flex items-center gap-2 mt-1">
+<span class="material-symbols-outlined text-outline text-sm">help</span>
+<span class="text-xs text-text-muted font-label-sm">Unverified</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Live Analysis & Agent Feed -->
+<section class="space-y-8">
+<div class="flex items-center justify-between border-b border-glass-stroke pb-4">
+<h2 class="font-headline-lg text-headline-lg text-primary">Live Analysis Dashboard</h2>
+<span class="font-label-sm text-label-sm uppercase tracking-widest text-surface-tint flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary-fixed-dim animate-pulse inline-block"></span> Active Feed
+                    </span>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+<!-- Agent Feed -->
+<div class="lg:col-span-2 glass-panel p-6 rounded-2xl space-y-6 bg-white shadow-md">
+<h3 class="font-headline-md text-headline-md text-primary mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary-fixed-dim">forum</span> Agent Deliberation
+                        </h3>
+<div class="space-y-4">
+<!-- Agent Message 1 -->
+<div class="flex gap-4 p-4 rounded-xl bg-surface/50 border border-glass-stroke hover:bg-surface transition-colors duration-300">
+<div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary border border-outline-variant">
+<span class="material-symbols-outlined text-sm">search</span>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-md text-label-md text-primary font-bold">Evidence Agent</span>
+<span class="text-xs text-text-muted">Just now</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                                        Scanned 42 recent government press releases and main utility provider announcements. No mention of nationwide free electricity found. Did find a localized subsidy program in Region 4 for low-income households.
+                                    </p>
+</div>
+</div>
+<!-- Agent Message 2 -->
+<div class="flex gap-4 p-4 rounded-xl bg-surface/50 border border-glass-stroke hover:bg-surface transition-colors duration-300">
+<div class="flex-shrink-0 w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-secondary border border-outline-variant">
+<span class="material-symbols-outlined text-sm">gavel</span>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-md text-label-md text-secondary font-bold">Judge Agent</span>
+<span class="text-xs text-text-muted">12s ago</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                                        Based on evidence, the claim extrapolates a highly specific regional program to a generalized national announcement. This represents a classic "False Generalization" pattern.
+                                    </p>
+</div>
+</div>
+</div>
+</div>
+<!-- Source Credibility & Pipeline -->
+<div class="space-y-8">
+<!-- Pipeline Visualization -->
+<div class="glass-panel p-6 rounded-2xl border border-glass-stroke bg-white shadow-md">
+<h3 class="font-label-md text-label-md text-primary font-bold mb-4 uppercase tracking-wider">Intelligence Pipeline</h3>
+<div class="space-y-3">
+<div class="pipeline-flow h-2 bg-surface-variant rounded-full w-full">
+<div class="h-full bg-primary rounded-full w-full transition-all duration-1000 ease-in-out" style="width: 100%"></div>
+</div>
+<div class="flex justify-between font-label-sm text-text-muted">
+<span>Ingestion</span>
+<span>Analysis</span>
+<span class="text-primary font-bold">Verdict</span>
+</div>
+</div>
+</div>
+<!-- Source Credibility -->
+<div class="glass-panel p-6 rounded-2xl border border-glass-stroke bg-white shadow-md scroll-mt-32" id="evidence">
+<h3 class="font-headline-md text-headline-md text-primary mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary-fixed-dim">verified</span> Source Credibility
+                            </h3>
+<div class="flex gap-4 text-xs font-label-sm text-text-muted mb-4">
+<span>Contradicting: 2</span>
+<span>Supporting: 1</span>
+</div>
+<div class="space-y-3" id="source-cards">
+<!-- Source 1 -->
+<div class="border border-glass-stroke rounded-xl overflow-hidden">
+<div class="flex justify-between items-center gap-3 p-4 bg-surface cursor-pointer hover:bg-surface-container-low transition-colors" onclick="toggleSource('src1')">
+<div class="min-w-0 flex-1">
+<span class="font-label-md text-primary font-bold">ndtv.com</span>
+<span class="ml-3 text-xs text-on-tertiary-container bg-tertiary-fixed/20 px-2 py-0.5 rounded font-label-sm">high factual</span>
+<span class="ml-2 text-xs text-error bg-error/10 px-2 py-0.5 rounded font-label-sm">Contradicts</span>
+</div>
+<div class="flex items-center gap-3 shrink-0">
+<span class="font-label-md text-text-muted">0.91</span>
+<span class="material-symbols-outlined text-sm text-text-muted" id="src1-icon">expand_more</span>
+</div>
+</div>
+<div class="w-full h-1 bg-surface-variant"><div class="h-full bg-on-tertiary-container rounded-r" style="width:91%"></div></div>
+<div class="hidden p-4 bg-surface-container-low border-t border-glass-stroke space-y-2" id="src1-body">
+<p class="font-body-md text-sm text-on-surface-variant italic">
+                                            "Ministry officials confirmed no such nationwide policy exists, calling the viral claim 'completely fabricated'."
+                                        </p>
+<div class="flex items-center gap-4 text-xs text-text-muted font-label-sm mt-2">
+<span>Published: 24 Aug 2026</span>
+<a class="flex items-center gap-1 text-primary hover:underline" href="#">
+                                                Open source <span class="material-symbols-outlined text-sm">open_in_new</span>
+</a>
+</div>
+</div>
+</div>
+<!-- Source 2 -->
+<div class="border border-glass-stroke rounded-xl overflow-hidden">
+<div class="flex justify-between items-center gap-3 p-4 bg-surface cursor-pointer hover:bg-surface-container-low transition-colors" onclick="toggleSource('src2')">
+<div class="min-w-0 flex-1">
+<span class="font-label-md text-primary font-bold">altnews.in</span>
+<span class="ml-3 text-xs text-on-tertiary-container bg-tertiary-fixed/20 px-2 py-0.5 rounded font-label-sm">high factual</span>
+<span class="ml-2 text-xs text-error bg-error/10 px-2 py-0.5 rounded font-label-sm">Contradicts</span>
+</div>
+<div class="flex items-center gap-3 shrink-0">
+<span class="font-label-md text-text-muted">0.87</span>
+<span class="material-symbols-outlined text-sm text-text-muted" id="src2-icon">expand_more</span>
+</div>
+</div>
+<div class="w-full h-1 bg-surface-variant"><div class="h-full bg-on-tertiary-container rounded-r" style="width:87%"></div></div>
+<div class="hidden p-4 bg-surface-container-low border-t border-glass-stroke space-y-2" id="src2-body">
+<p class="font-body-md text-sm text-on-surface-variant italic">
+                                            "AltNews investigation found the claim originated from a regional subsidy misquoted on social media."
+                                        </p>
+<div class="flex items-center gap-4 text-xs text-text-muted font-label-sm mt-2">
+<span>Published: 23 Aug 2026</span>
+<a class="flex items-center gap-1 text-primary hover:underline" href="#">
+                                                Open source <span class="material-symbols-outlined text-sm">open_in_new</span>
+</a>
+</div>
+</div>
+</div>
+<!-- Source 3 -->
+<div class="border border-glass-stroke rounded-xl overflow-hidden">
+<div class="flex justify-between items-center gap-3 p-4 bg-surface cursor-pointer hover:bg-surface-container-low transition-colors" onclick="toggleSource('src3')">
+<div class="min-w-0 flex-1">
+<span class="font-label-md text-primary font-bold">randomblog.net</span>
+<span class="ml-3 text-xs text-error bg-error/10 px-2 py-0.5 rounded font-label-sm">low factual</span>
+<span class="ml-2 text-xs text-on-tertiary-container bg-tertiary-fixed/20 px-2 py-0.5 rounded font-label-sm">Supports</span>
+</div>
+<div class="flex items-center gap-3 shrink-0">
+<span class="font-label-md text-text-muted">0.34</span>
+<span class="material-symbols-outlined text-sm text-text-muted" id="src3-icon">expand_more</span>
+</div>
+</div>
+<div class="w-full h-1 bg-surface-variant"><div class="h-full bg-error rounded-r" style="width:34%"></div></div>
+<div class="hidden p-4 bg-surface-container-low border-t border-glass-stroke space-y-2" id="src3-body">
+<p class="font-body-md text-sm text-on-surface-variant italic">
+                                            "Source unverified. Domain registered 2 months ago with no editorial history found."
+                                        </p>
+<div class="flex items-center gap-4 text-xs text-text-muted font-label-sm mt-2">
+<span>Published: 22 Aug 2026</span>
+<a class="flex items-center gap-1 text-primary hover:underline" href="#">
+                                                Open source <span class="material-symbols-outlined text-sm">open_in_new</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- What the reviewers say -->
+<section class="space-y-6">
+<h2 class="font-headline-lg text-headline-lg text-primary border-b border-glass-stroke pb-4">
+                    What the reviewers say
+                </h2>
+<div class="space-y-4" id="reviewer-cards">
+<!-- Fact Checker -->
+<div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke hover:bg-surface-container-low transition-colors">
+<div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary border border-outline-variant agent-pulse">
+<span class="material-symbols-outlined text-sm">fact_check</span>
+</div>
+<div>
+<div class="flex items-center gap-3 mb-1">
+<span class="font-label-md text-primary font-bold">Fact Checker</span>
+<span class="text-xs px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm">High confidence</span>
+<span class="text-xs text-text-muted">Sources: 1, 2</span>
+</div>
+<p class="font-body-md text-sm text-on-surface-variant">
+                            Scanned 42 recent government press releases and main utility provider announcements.
+                            No mention of nationwide free electricity found. Did find a localized subsidy program
+                            in Region 4 for low-income households.
+                        </p>
+</div>
+</div>
+<!-- Logical Analyst -->
+<div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke hover:bg-surface-container-low transition-colors">
+<div class="flex-shrink-0 w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-secondary border border-outline-variant agent-pulse" style="animation-delay: 0.5s;">
+<span class="material-symbols-outlined text-sm">psychology</span>
+</div>
+<div>
+<div class="flex items-center gap-3 mb-1">
+<span class="font-label-md text-secondary font-bold">Logical Analyst</span>
+<span class="text-xs px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm">High confidence</span>
+<span class="text-xs text-text-muted">Sources: 1</span>
+</div>
+<p class="font-body-md text-sm text-on-surface-variant">
+                            Based on evidence, the claim extrapolates a highly specific regional program to a
+                            generalized national announcement. This represents a classic "False Generalization" pattern.
+                        </p>
+</div>
+</div>
+<!-- Bias Detector -->
+<div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke hover:bg-surface-container-low transition-colors">
+<div class="flex-shrink-0 w-10 h-10 rounded-full bg-tertiary-fixed/30 flex items-center justify-center text-tertiary-container border border-outline-variant agent-pulse" style="animation-delay: 1s;">
+<span class="material-symbols-outlined text-sm">visibility</span>
+</div>
+<div>
+<div class="flex items-center gap-3 mb-1">
+<span class="font-label-md text-tertiary-container font-bold">Bias Detector</span>
+<span class="text-xs px-2 py-0.5 rounded-full bg-tertiary-fixed/20 text-tertiary-container font-label-sm">Medium confidence</span>
+<span class="text-xs text-text-muted">Sources: 2</span>
+</div>
+<p class="font-body-md text-sm text-on-surface-variant">
+                            High emotional language used in the source blog post indicates sensationalism rather
+                            than objective reporting. The framing is designed to elicit strong reactions rather than inform.
+                        </p>
+</div>
+</div>
+</div>
+</section>
+<!-- Patterns of Deception -->
+<section class="space-y-8">
+<div class="text-center max-w-2xl mx-auto space-y-4">
+<h2 class="font-headline-lg text-headline-lg text-primary">Know the Patterns</h2>
+<p class="font-body-md text-on-surface-variant">Identify common manipulative tactics before they spread.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Pattern 1 -->
+<div class="glass-panel p-6 rounded-2xl border border-glass-stroke hover:-translate-y-1 transition-transform cursor-pointer bg-white shadow-md">
+<div class="w-12 h-12 rounded-full bg-error-container text-on-error-container flex items-center justify-center mb-4">
+<span class="material-symbols-outlined">warning</span>
+</div>
+<h4 class="font-headline-md text-primary text-xl mb-2">False Generalization</h4>
+<p class="font-body-md text-text-muted text-sm">Taking a hyper-local event or policy and presenting it as a national or global standard.</p>
+</div>
+<!-- Pattern 2 -->
+<div class="glass-panel p-6 rounded-2xl border border-glass-stroke hover:-translate-y-1 transition-transform cursor-pointer bg-white shadow-md">
+<div class="w-12 h-12 rounded-full bg-secondary-container text-secondary flex items-center justify-center mb-4">
+<span class="material-symbols-outlined">psychology</span>
+</div>
+<h4 class="font-headline-md text-primary text-xl mb-2">Emotional Anchoring</h4>
+<p class="font-body-md text-text-muted text-sm">Using highly charged language to override logical assessment of the core facts.</p>
+</div>
+<!-- Pattern 3 -->
+<div class="glass-panel p-6 rounded-2xl border border-glass-stroke hover:-translate-y-1 transition-transform cursor-pointer bg-white shadow-md">
+<div class="w-12 h-12 rounded-full bg-primary-fixed text-primary-container flex items-center justify-center mb-4">
+<span class="material-symbols-outlined">content_cut</span>
+</div>
+<h4 class="font-headline-md text-primary text-xl mb-2">Context Stripping</h4>
+<p class="font-body-md text-text-muted text-sm">Removing quotes or statistics from their original context to alter their meaning completely.</p>
+</div>
+</div>
+</section>
+</div>
+<!-- View: About -->
+<div class="view-content view-hidden fade-in" id="view-about">
+<!-- Header Section -->
+<section class="mb-16 text-center max-w-3xl mx-auto">
+<h1 class="font-display text-display text-primary mb-6">About TruthLens</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">
+                    Verifying the future of information through advanced multi-agent AI architecture. Built for precision, designed for clarity.
+                </p>
+</section>
+<!-- Project Info -->
+<section class="mb-20 bg-white border border-glass-stroke rounded-xl p-8 shadow-md flex flex-col md:flex-row items-center justify-between gap-6 hover:shadow-lg transition-shadow duration-300">
+<div>
+<h2 class="font-headline-md text-headline-md text-primary mb-2">Project 45 — TruthLens</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">B.Tech Computer Science Engineering</p>
+</div>
+<div class="text-right">
+<p class="font-label-md text-label-md text-text-muted mb-1 uppercase tracking-wider">Built at</p>
+<p class="font-body-lg text-body-lg font-medium text-primary">Keshav Memorial Institute of Technology, Hyderabad</p>
+</div>
+</section>
+<!-- Technical Architecture Diagram -->
+<section class="mb-20">
+<div class="flex items-center gap-2 mb-8">
+<span class="material-symbols-outlined text-secondary" data-icon="account_tree">account_tree</span>
+<h2 class="font-headline-lg text-headline-lg text-primary">Technical Architecture</h2>
+</div>
+<div class="bg-white border border-glass-stroke rounded-xl p-8 overflow-x-auto relative shadow-md">
+<!-- Abstract connection line -->
+<div class="flow-line hidden xl:block absolute top-1/2 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-secondary-container to-transparent z-0 opacity-50"></div>
+<div class="flex flex-col xl:flex-row gap-6 xl:gap-8 justify-between min-w-max items-center py-4 relative z-10">
+<!-- Node 1 -->
+<div class="bg-surface/80 backdrop-blur border border-glass-stroke rounded-xl p-6 w-64 text-center shadow-sm hover:shadow-md hover:-translate-y-2 transition-all duration-300 relative group cursor-default">
+<div class="bg-primary text-on-primary w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+<span class="material-symbols-outlined text-2xl" data-icon="edit_document">edit_document</span>
+</div>
+<h3 class="font-label-md text-label-md text-primary font-bold mb-2">User Claim</h3>
+<p class="text-sm text-text-muted font-body-md">Initial statement or content submitted for verification.</p>
+</div>
+<span class="material-symbols-outlined text-outline/50 xl:rotate-0 rotate-90" data-icon="arrow_forward">arrow_forward</span>
+<!-- Node 2 -->
+<div class="bg-surface/80 backdrop-blur border border-glass-stroke rounded-xl p-6 w-64 text-center shadow-sm hover:shadow-md hover:-translate-y-2 transition-all duration-300 relative group cursor-default">
+<div class="bg-secondary text-on-secondary w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+<span class="material-symbols-outlined text-2xl" data-icon="schema">schema</span>
+</div>
+<h3 class="font-label-md text-label-md text-primary font-bold mb-2">Decompose Agent</h3>
+<p class="text-sm text-text-muted font-body-md">Breaks down complex claims into verifiable atomic facts.</p>
+</div>
+<span class="material-symbols-outlined text-outline/50 xl:rotate-0 rotate-90" data-icon="arrow_forward">arrow_forward</span>
+<!-- Node 3 -->
+<div class="bg-surface/80 backdrop-blur border border-glass-stroke rounded-xl p-6 w-64 text-center shadow-sm hover:shadow-md hover:-translate-y-2 transition-all duration-300 relative group cursor-default">
+<div class="bg-secondary text-on-secondary w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+<span class="material-symbols-outlined text-2xl" data-icon="verified_user">verified_user</span>
+</div>
+<h3 class="font-label-md text-label-md text-primary font-bold mb-2">Credibility Agent</h3>
+<p class="text-sm text-text-muted font-body-md">Evaluates source reliability and historical accuracy.</p>
+</div>
+<span class="material-symbols-outlined text-outline/50 xl:rotate-0 rotate-90" data-icon="arrow_forward">arrow_forward</span>
+<!-- Node 4 -->
+<div class="bg-surface/80 backdrop-blur border border-glass-stroke rounded-xl p-6 w-64 text-center shadow-sm hover:shadow-md hover:-translate-y-2 transition-all duration-300 relative group cursor-default">
+<div class="bg-secondary text-on-secondary w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+<span class="material-symbols-outlined text-2xl" data-icon="travel_explore">travel_explore</span>
+</div>
+<h3 class="font-label-md text-label-md text-primary font-bold mb-2">Evidence Agent</h3>
+<p class="text-sm text-text-muted font-body-md">Gathers corroborating data across verified databases.</p>
+</div>
+<span class="material-symbols-outlined text-outline/50 xl:rotate-0 rotate-90" data-icon="arrow_forward">arrow_forward</span>
+<!-- Node 5 -->
+<div class="bg-surface/80 backdrop-blur border border-glass-stroke rounded-xl p-6 w-64 text-center shadow-sm hover:shadow-md hover:-translate-y-2 transition-all duration-300 relative group cursor-default">
+<div class="bg-secondary text-on-secondary w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+<span class="material-symbols-outlined text-2xl" data-icon="balance">balance</span>
+</div>
+<h3 class="font-label-md text-label-md text-primary font-bold mb-2">Judge Agent</h3>
+<p class="text-sm text-text-muted font-body-md">Synthesizes findings to render a final truth verdict.</p>
+</div>
+<span class="material-symbols-outlined text-outline/50 xl:rotate-0 rotate-90" data-icon="arrow_forward">arrow_forward</span>
+<!-- Node 6 -->
+<div class="bg-surface/80 backdrop-blur border border-glass-stroke rounded-xl p-6 w-64 text-center shadow-sm hover:shadow-md hover:-translate-y-2 transition-all duration-300 relative group cursor-default">
+<div class="bg-primary text-on-primary w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+<span class="material-symbols-outlined text-2xl" data-icon="dashboard">dashboard</span>
+</div>
+<h3 class="font-label-md text-label-md text-primary font-bold mb-2">Results UI</h3>
+<p class="text-sm text-text-muted font-body-md">Displays detailed analysis, citations, and final score.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Tech Stack Section -->
+<section>
+<div class="flex items-center gap-2 mb-8">
+<span class="material-symbols-outlined text-secondary" data-icon="memory">memory</span>
+<h2 class="font-headline-lg text-headline-lg text-primary">Tech Stack</h2>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-3 gap-6">
+<div class="bg-white border border-glass-stroke rounded-xl p-6 hover:-translate-y-1 transition-all duration-300 shadow-sm hover:shadow-md group">
+<div class="font-label-sm text-label-sm text-on-tertiary-container bg-tertiary-fixed/20 inline-block px-2 py-1 rounded mb-4 group-hover:bg-tertiary-fixed/30 transition-colors">Orchestration</div>
+<h3 class="font-headline-md text-headline-md text-primary mb-2">LangGraph</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Building stateful, multi-actor applications with LLMs.</p>
+</div>
+<div class="bg-white border border-glass-stroke rounded-xl p-6 hover:-translate-y-1 transition-all duration-300 shadow-sm hover:shadow-md group">
+<div class="font-label-sm text-label-sm text-on-tertiary-container bg-tertiary-fixed/20 inline-block px-2 py-1 rounded mb-4 group-hover:bg-tertiary-fixed/30 transition-colors">Core LLM</div>
+<h3 class="font-headline-md text-headline-md text-primary mb-2">DeepSeek R1</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Advanced reasoning capabilities for complex claim analysis.</p>
+</div>
+<div class="bg-white border border-glass-stroke rounded-xl p-6 hover:-translate-y-1 transition-all duration-300 shadow-sm hover:shadow-md group">
+<div class="font-label-sm text-label-sm text-on-tertiary-container bg-tertiary-fixed/20 inline-block px-2 py-1 rounded mb-4 group-hover:bg-tertiary-fixed/30 transition-colors">Local Inference</div>
+<h3 class="font-headline-md text-headline-md text-primary mb-2">Ollama</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Running large language models locally for privacy and speed.</p>
+</div>
+<div class="bg-white border border-glass-stroke rounded-xl p-6 hover:-translate-y-1 transition-all duration-300 shadow-sm hover:shadow-md group">
+<div class="font-label-sm text-label-sm text-on-tertiary-container bg-tertiary-fixed/20 inline-block px-2 py-1 rounded mb-4 group-hover:bg-tertiary-fixed/30 transition-colors">Vector DB</div>
+<h3 class="font-headline-md text-headline-md text-primary mb-2">FAISS</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Efficient similarity search and clustering of dense vectors.</p>
+</div>
+<div class="bg-white border border-glass-stroke rounded-xl p-6 hover:-translate-y-1 transition-all duration-300 shadow-sm hover:shadow-md group">
+<div class="font-label-sm text-label-sm text-on-tertiary-container bg-tertiary-fixed/20 inline-block px-2 py-1 rounded mb-4 group-hover:bg-tertiary-fixed/30 transition-colors">Search API</div>
+<h3 class="font-headline-md text-headline-md text-primary mb-2">Tavily</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">AI-optimized search engine for gathering real-time evidence.</p>
+</div>
+<div class="bg-white border border-glass-stroke rounded-xl p-6 hover:-translate-y-1 transition-all duration-300 shadow-sm hover:shadow-md group">
+<div class="font-label-sm text-label-sm text-on-tertiary-container bg-tertiary-fixed/20 inline-block px-2 py-1 rounded mb-4 group-hover:bg-tertiary-fixed/30 transition-colors">Backend</div>
+<h3 class="font-headline-md text-headline-md text-primary mb-2">FastAPI</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">High-performance web framework for building APIs with Python.</p>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Footer -->
+<footer class="w-full py-12 bg-surface-container-lowest border-t border-glass-stroke mt-auto">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-base px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto">
+<div class="space-y-4">
+<div class="font-headline-md text-headline-md font-bold text-primary">TruthLens</div>
+<p class="font-body-md text-body-md text-text-muted">
+                    Project 45 — Built at Keshav Memorial Institute of Technology, Hyderabad<br/>
+                    © 2024 TruthLens AI. Verifying the future of information.
+                </p>
+</div>
+<div class="flex flex-wrap gap-6 md:justify-end items-center font-body-md text-body-md">
+<a class="text-text-muted hover:text-primary transition-all" href="#">Privacy Policy</a>
+<a class="text-text-muted hover:text-primary transition-all" href="#">Terms of Service</a>
+<a class="text-text-muted hover:text-primary transition-all" href="#">API Documentation</a>
+<a class="text-text-muted hover:text-primary transition-all" href="#">Contact Support</a>
+<a class="text-text-muted hover:text-primary transition-all cursor-pointer" onclick="switchView('about')">About Us</a>
+</div>
+</div>
+</footer>
+<!-- SPA logic. Plain classic scripts, no bundler and no modules, so this
+     page works when opened directly from disk as well as over a local
+     server. Load order matters: data and state first, then the view
+     modules, then the boot script. -->
+<script src="data/mock-data.js"></script>
+<script src="js/state.js"></script>
+<script src="js/api.js"></script>
+<script src="js/navigation.js"></script>
+<script src="js/input.js"></script>
+<script src="js/image.js"></script>
+<script src="js/verification.js"></script>
+<script src="js/results.js"></script>
+<script src="js/export.js"></script>
+<script src="js/app.js"></script>
+</body></html>

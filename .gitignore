@@ -1,0 +1,12 @@
+.env
+*.env
+!config/.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+indexes/*.faiss
+indexes/*.bin
+indexes/*.pkl
+data/processed/web_evidence_cache.json
+frontend/data/mock-data.js
+.venv/
