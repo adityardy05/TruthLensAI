@@ -1,9 +1,0 @@
-POST http://localhost:5000/process_image
-Content-Type: multipart/form-data; boundary=WebAppBoundary
-
---WebAppBoundary
-Content-Disposition: form-data; name="file"; filename="test_poster.png"
-Content-Type: image/png
-
-< C:/Users/sahit/.gemini/antigravity/brain/8b89f890-1f05-41a7-bd4c-e4d747bd20e9/.user_uploaded/media_1787389070720.png
---WebAppBoundary--

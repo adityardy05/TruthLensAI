@@ -1,0 +1,18 @@
+/* ============================================================
+   TruthLens · responsive.css
+   Breakpoint-dependent behaviour only. Loaded last so it wins
+   over components.css.
+   ============================================================ */
+
+/* ---------- Verify: centered claim block ---------- */
+/* The Verify hero is `grid-cols-1 lg:grid-cols-2 gap-16`. Below lg
+   it is a single column, so the claim block already fills the row
+   and needs no offset. At lg and above it occupies the left column,
+   so to look centered it must shift right by half its own width
+   plus half the 4rem gap — hence calc(50% + 2rem).
+
+   Removing .is-centered (js/verification.js, on Analyze) animates
+   it back to 0 and into its real column. */
+@media (min-width: 1024px) {
+    .claim-block.is-centered { transform: translateX(calc(50% + 2rem)); }
+}

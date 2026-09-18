@@ -1,0 +1,117 @@
+/* ============================================================
+   TruthLens · components.css
+   Per-component visuals and their keyframes: agent pulse rings,
+   the intelligence pipeline shimmer, the terminal cursor, the
+   export dropdown, the PDF drop animation and the Verify-page
+   claim block.
+   ============================================================ */
+
+/* ---------- Agent pulse (checking timeline + reviewer avatars) ---------- */
+.agent-pulse {
+    animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+@keyframes pulse-ring {
+    0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.7); opacity: 0.5; }
+    70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(0, 240, 255, 0); opacity: 0; }
+    100% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(0, 240, 255, 0); opacity: 0; }
+}
+
+/* ---------- Radial Confidence Meter (Results verdict card) ---------- */
+.radial-progress {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: conic-gradient(#ef4444 91%, #fee2e2 0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.radial-progress::before {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    background-color: white;
+    border-radius: 50%;
+}
+
+.radial-progress-text {
+    position: relative;
+    z-index: 1;
+}
+
+/* ---------- Intelligence pipeline shimmer (Results) ---------- */
+.pipeline-flow {
+    position: relative;
+    overflow: hidden;
+}
+
+.pipeline-flow::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 50%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0,240,255,0.2), transparent);
+    animation: flow 3s infinite linear;
+}
+
+@keyframes flow {
+    100% { left: 200%; }
+}
+
+/* ---------- Agent Processing Log terminal ---------- */
+.terminal-cursor {
+    display: inline-block;
+    width: 8px;
+    height: 16px;
+    background-color: #00F0FF;
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+    margin-left: 4px;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* ---------- Report export dropdown ---------- */
+.download-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: white;
+    border: 1px solid rgba(32, 22, 19, 0.08);
+    border-radius: 0.5rem;
+    margin-top: 0.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    z-index: 50;
+}
+
+.download-btn:focus-within .download-menu {
+    display: block;
+}
+
+.mock-pdf-anim {
+    animation: pdfDrop 2s ease-in-out forwards;
+}
+
+@keyframes pdfDrop {
+    0% { transform: translateY(-20px); opacity: 0; }
+    20% { transform: translateY(0); opacity: 1; }
+    80% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(20px); opacity: 0; }
+}
+
+/* ---------- Verify-page claim block ---------- */
+/* Sits centered until a claim is submitted, then slides to its
+   left-hand grid column. The .is-centered offset itself is in
+   responsive.css because it only applies once the Verify section
+   actually becomes two columns. */
+.claim-block {
+    transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
+}

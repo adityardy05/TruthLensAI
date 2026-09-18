@@ -1,77 +1,107 @@
 """
 ================================================================
-VERIFICATION SUITE: FLASK API ENDPOINTS (TruthLens v2.0)
+VERIFICATION SUITE: UNIFIED FLASK API ENDPOINTS
 ================================================================
 """
 
+import json
 import os
 import sys
-import json
 import unittest
-from unittest.mock import patch
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from api.app import app
-import api.app as app_module
+from flask import Flask
 
-class TestTeamAApiEndpoints(unittest.TestCase):
+from backend.api.verification import api
+
+
+class FakeVerificationService:
+    def verify_text(self, claim, original_language="en", top_k=5):
+        return {
+            "verdict": "TRUE",
+            "confidence": 0.91,
+            "claim": claim,
+            "justification": "Test verification result.",
+            "evidence": [
+                {
+                    "source_domain": "example.org",
+                    "combined_reliability": 0.8
+                }
+            ],
+            "metadata": {
+                "num_sources_kept": 1
+            }
+        }
+
+
+class TestUnifiedApiEndpoints(unittest.TestCase):
 
     def setUp(self):
-        if app is not None:
-            self.app = app.test_client()
-            self.app.testing = True
-        else:
-            self.app = None
+        self.app = Flask(__name__)
+        self.app.register_blueprint(api)
+
+        fake_scraper = type(
+            "FakeScraper",
+            (),
+            {"api_key": "test-key"}
+        )()
+
+        fake_retriever = type(
+            "FakeRetriever",
+            (),
+            {
+                "faiss_index": object(),
+                "scraper": fake_scraper
+            }
+        )()
+
+        self.app.extensions["retriever"] = fake_retriever
+        self.app.extensions["verification_service"] = FakeVerificationService()
+
+        self.client = self.app.test_client()
+        self.app.testing = True
 
     def test_health_endpoint(self):
-        """Test GET /health returns 200 OK with expected fields."""
-        if self.app is None:
-            self.skipTest("Flask not installed")
-        response = self.app.get('/health')
-        self.assertEqual(response.status_code, 200)
-        data = json.loads(response.data)
-        self.assertEqual(data["status"], "healthy")
-        self.assertEqual(data["architecture_spec"], "TruthLens v2.0")
+        """Test GET /api/v1/health."""
+        response = self.client.get("/api/v1/health")
 
-    def test_retrieve_endpoint(self):
-        """Test POST /retrieve returns 200 OK with Inter-Team Data Contract JSON."""
-        if self.app is None:
-            self.skipTest("Flask not installed")
+        self.assertEqual(response.status_code, 200)
+
+        data = response.get_json()
+
+        self.assertEqual(data["status"], "healthy")
+        self.assertTrue(data["faiss_loaded"])
+        self.assertTrue(data["tavily_configured"])
+
+    def test_verify_endpoint(self):
+        """Test POST /api/v1/verify."""
         payload = {
             "claim": "Does drinking alcohol cure COVID-19?",
             "original_language": "en",
             "top_k": 5
         }
-        response = self.app.post('/retrieve', data=json.dumps(payload), content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        data = json.loads(response.data)
 
-        self.assertIn("claim", data)
-        self.assertIn("normalized_claim", data)
-        self.assertIn("sub_claims", data)
-        self.assertIn("evidence", data)
-        self.assertIn("metadata", data)
-
-    @patch("api.app.requests.post")
-    def test_forward_to_team_b_sends_contract(self, mock_post):
-        """Test the Team B handoff sends the complete contract as JSON."""
-        mock_post.return_value.raise_for_status.return_value = None
-        contract = {"claim": "example", "evidence": []}
-        original_url = app_module.TEAM_B_URL
-        app_module.TEAM_B_URL = "http://127.0.0.1:8000/analyze"
-        try:
-            self.assertIsNone(app_module.forward_to_team_b(contract))
-        finally:
-            app_module.TEAM_B_URL = original_url
-
-        mock_post.assert_called_once_with(
-            "http://127.0.0.1:8000/analyze",
-            json=contract,
-            timeout=app_module.TEAM_B_TIMEOUT
+        response = self.client.post(
+            "/api/v1/verify",
+            data=json.dumps(payload),
+            content_type="application/json"
         )
+
+        self.assertEqual(response.status_code, 200)
+
+        data = response.get_json()
+
+        self.assertIn("verdict", data)
+        self.assertIn("confidence", data)
+        self.assertIn("claim", data)
+        self.assertIn("justification", data)
+        self.assertIn("evidence", data)
+
+        self.assertEqual(data["verdict"], "TRUE")
+
 
 if __name__ == "__main__":
     unittest.main()
