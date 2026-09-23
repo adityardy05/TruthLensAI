@@ -1,1 +1,0 @@
-"""Team B nodes package"""
