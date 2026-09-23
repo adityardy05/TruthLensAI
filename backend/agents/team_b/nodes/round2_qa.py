@@ -1,104 +1,281 @@
 """
-round2_qa.py — Team B · Node 5
-Conditional node — only runs when Round 1 confidence < 0.80.
-Personas read Round 1 memory and ask DEEPER follow-up questions.
-Memory prevents any question already asked in Round 1 from repeating.
+round2_qa.py — Team B · Round 2
 
-LLM calls: 6  (3 questions + 3 answers)
+Fact Checker only.
+Uses HIGH-QUALITY evidence:
+    combined_reliability >= 0.70
+
+Round 2 produces:
+    stance
+    confidence
+    reasoning
+
+LLM calls:
+    2
+    1 → generate question
+    1 → structured answer
 """
 
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+
+sys.path.append(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        ".."
+    )
+)
 
 from backend.agents.team_b.state import VerificationState
-from backend.agents.team_b.personas import fact_checker, logical_analyst, bias_detector
+from backend.agents.team_b.personas import fact_checker
+
 
 ROUND_NUM = 2
-
-PERSONAS = [
-    {"name": "Fact Checker",     "module": fact_checker},
-    {"name": "Logical Analyst",  "module": logical_analyst},
-    {"name": "Bias Detector",    "module": bias_detector},
-]
+HIGH_QUALITY_THRESHOLD = 0.70
 
 
-def round2_qa_node(state: VerificationState) -> VerificationState:
+def round2_qa_node(
+    state: VerificationState
+) -> VerificationState:
     """
-    Node 5: Round 2 Q&A — deeper questioning using Round 1 memory.
-
-    Reads:  state["qa_memory"]  (Round 1 entries already in here)
-    Writes: state["qa_memory"]  (appends Round 2 entries)
-            state["rounds_executed"] = 2
-
-    The Round 1 memory passed to each persona prevents:
-    - Repeating questions already asked
-    - Generating redundant insights
+    Round 2:
+    Fact Checker analyzes only high-quality evidence.
     """
 
-    claim    = state["claim"]
-    evidence = state.get("evidence", [])
-    memory   = state.get("qa_memory", []).copy()   # includes Round 1
-    llm_calls = state.get("total_llm_calls", 0)
+    claim = state["claim"]
 
-    print(
-        f"[round2_qa] Starting Round 2 "
-        f"(Round 1 confidence was {state.get('round1_confidence', '?'):.3f})"
+    all_evidence = state.get(
+        "evidence",
+        []
     )
 
-    for persona in PERSONAS:
-        name   = persona["name"]
-        module = persona["module"]
+    qa_history = state.get(
+        "qa_history",
+        []
+    ).copy()
 
-        try:
-            # Persona sees ALL of Round 1 memory before asking
-            # → will naturally ask something not covered in Round 1
-            print(f"[round2_qa] {name} generating deeper question...")
-            question = module.generate_question(
-                claim=claim,
-                evidence=evidence,
-                memory=memory,         # ← includes Round 1
-                round_num=ROUND_NUM
+    qa_memory = state.get(
+        "qa_memory",
+        []
+    ).copy()
+
+    llm_calls = state.get(
+        "total_llm_calls",
+        0
+    )
+
+    # Round 1 sets qa_round = 1
+    # Therefore this node becomes Round 2.
+    current_round = (
+        state.get("qa_round", 1) + 1
+    )
+
+    # ── Select high-quality evidence ────────────────────────────
+
+    high_quality = [
+        ev
+        for ev in all_evidence
+        if ev.get(
+            "combined_reliability",
+            0.0
+        ) >= HIGH_QUALITY_THRESHOLD
+    ]
+
+    print(
+        f"[round2_qa] "
+        f"High-quality evidence: "
+        f"{len(high_quality)}/{len(all_evidence)}"
+    )
+
+    # ── No high-quality evidence ────────────────────────────────
+
+    if not high_quality:
+
+        print(
+            "[round2_qa] "
+            "No high-quality evidence. "
+            "Skipping Fact Checker reasoning."
+        )
+
+        return {
+            **state,
+
+            "qa_round": current_round,
+
+            "qa_history": qa_history,
+
+            # Round 2 was visited but did NOT
+            # produce reasoning.
+            "rounds_executed": state.get(
+                "rounds_executed",
+                1
+            ),
+        }
+
+    # Memory available before Round 2
+    prior_memory = qa_memory.copy()
+
+    try:
+
+        # ── Step 1: Generate question ───────────────────────────
+
+        print(
+            "[round2_qa] "
+            "Fact Checker generating question..."
+        )
+
+        question = fact_checker.generate_question(
+            claim=claim,
+            evidence=high_quality,
+            memory=prior_memory,
+            round_num=ROUND_NUM,
+        )
+
+        llm_calls += 1
+
+        # ── Step 2: Generate structured answer ──────────────────
+
+        print(
+            "[round2_qa] "
+            "Fact Checker generating "
+            "structured answer..."
+        )
+
+        result = fact_checker.generate_structured_answer(
+            claim=claim,
+            question=question,
+            evidence=high_quality,
+            memory=prior_memory,
+        )
+
+        llm_calls += 1
+
+        stance = result.get(
+            "stance",
+            "UNCERTAIN"
+        )
+
+        confidence = float(
+            result.get(
+                "confidence",
+                0.0
             )
-            llm_calls += 1
+        )
 
-            print(f"[round2_qa] AAns answering for {name}...")
-            answer = module.generate_answer(
-                claim=claim,
-                question=question,
-                evidence=evidence,
-                memory=memory          # ← context-aware answer
-            )
-            llm_calls += 1
+        reasoning = result.get(
+            "reasoning",
+            ""
+        )
 
-            insight = module.extract_insight(question, answer)
+        # ── Step 3: Extract insight ─────────────────────────────
 
-            # Append Round 2 entry to same memory list
-            memory.append({
-                "round":    ROUND_NUM,
-                "persona":  name,
-                "question": question,
-                "answer":   answer,
-                "insight":  insight,
-            })
+        insight = fact_checker.extract_insight(
+            question,
+            reasoning
+        )
 
-            print(f"[round2_qa] {name} done. Insight: {insight[:60]}...")
+        # ── Step 4: Save to Q&A memory ─────────────────────────
 
-        except Exception as e:
-            print(f"[round2_qa] {name} failed: {e}. Skipping.")
-            memory.append({
-                "round":    ROUND_NUM,
-                "persona":  name,
-                "question": f"[FAILED: {name}]",
-                "answer":   f"Error: {e}",
-                "insight":  "persona_failed",
-            })
+        qa_memory.append({
+            "round": ROUND_NUM,
 
-    print(f"[round2_qa] Round 2 complete. Total memory entries: {len(memory)}")
+            "persona": "Fact Checker",
+
+            "question": question,
+
+            "answer": reasoning,
+
+            "insight": insight,
+
+            "stance": stance,
+
+            "confidence": confidence,
+        })
+
+        # ── Step 5: Save structured round history ──────────────
+
+        qa_entry = {
+            "round": current_round,
+
+            "fact_checker": {
+                "stance": stance,
+
+                "reasoning": reasoning,
+
+                "confidence": confidence,
+            },
+
+            "confidence": confidence,
+        }
+
+        qa_history.append(
+            qa_entry
+        )
+
+        print(
+            "[round2_qa] "
+            f"Fact Checker stance={stance} "
+            f"confidence={confidence:.3f}"
+        )
+
+        print(
+            "[round2_qa] "
+            "Round 2 complete."
+        )
+
+    except Exception as e:
+
+        print(
+            f"[round2_qa] "
+            f"Fact Checker failed: {e}"
+        )
+
+        # Save failure information so the
+        # final node knows Round 2 did not
+        # produce a valid result.
+
+        qa_entry = {
+            "round": current_round,
+
+            "fact_checker": {
+                "stance": "UNCERTAIN",
+
+                "reasoning":
+                    f"Round 2 error: {e}",
+
+                "confidence": 0.0,
+            },
+
+            "confidence": 0.0,
+        }
+
+        qa_history.append(
+            qa_entry
+        )
+
+    # ── Return updated state ────────────────────────────────────
 
     return {
         **state,
-        "qa_memory":       memory,
-        "rounds_executed": 2,
+
+        "qa_round": current_round,
+
+        "qa_memory": qa_memory,
+
+        "qa_history": qa_history,
+
+        # Round 2 produced reasoning only if
+        # the Fact Checker completed successfully.
+        "rounds_executed": len([
+            entry
+            for entry in qa_history
+            if (
+                "fact_checker" in entry
+                or "logical_analyst" in entry
+                or "bias_detector" in entry
+            )
+        ]) + 1,
+
         "total_llm_calls": llm_calls,
     }
