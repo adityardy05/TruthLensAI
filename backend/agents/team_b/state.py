@@ -49,8 +49,10 @@ class VerificationState(TypedDict):
     answer_certainty:   float         # how certain were AAns answers
     go_to_round2:       bool          # True if confidence < 0.80
 
-    # ── Set by Node 5: round2_qa (conditional) ───────────────────
-    rounds_executed:    int           # 1 or 2
+    # ── Set by QA rounds ──────────────────────────────────────────
+    qa_round:           int           # current graph round, starts at 0
+    rounds_executed:    int           # actual reasoning rounds completed
+    qa_history:         List[Dict]    # sparse per-round persona results
 
     # ── Set by Node 6: final_judgment ────────────────────────────
     verdict:            str           # TRUE | FALSE | PARTIALLY_TRUE | PARTIALLY_FALSE | UNVERIFIABLE
