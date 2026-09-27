@@ -188,12 +188,12 @@ function resetAndGoHome() {
     clearCurrentClaim();
 
     const claimInput = document.getElementById('claim-input');
-    if (claimInput) claimInput.value = DEFAULT_CLAIM;
+    if (claimInput) claimInput.value = '';
     refreshInputMeta();
 
     resetSideCheckingToIdle();
     resetCheckingPipeline();
-    setTargetClaim(DEFAULT_CLAIM, true);
+    setTargetClaim('No claim submitted yet.', true);
 
     switchView('home');
 }
