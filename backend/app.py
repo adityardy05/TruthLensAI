@@ -12,13 +12,14 @@ if __package__ in (None, ""):
 load_dotenv()
 
 from backend.api.verification import api
-from backend.core.config import PROJECT_ROOT, load_settings
+from backend.core.config import PROJECT_ROOT, load_settings, validate_runtime_config
 from backend.rag.retriever import TeamARetrievalPipeline
 from backend.services.verification_service import VerificationService
 
 
 def create_app(test_config: dict | None = None) -> Flask:
     settings = load_settings()
+    validate_runtime_config(settings, mode="web", strict=False)
     frontend_dir = PROJECT_ROOT / "frontend"
     app = Flask(__name__, static_folder=str(frontend_dir), static_url_path="")
     app.config.from_mapping(MAX_CONTENT_LENGTH=settings.max_upload_bytes)

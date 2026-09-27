@@ -1,11 +1,11 @@
 """
-round2_qa.py — Team B · Round 2
+round3_qa.py — Team B · Round 3
 
-Fact Checker only.
-Uses HIGH-QUALITY evidence:
-    combined_reliability >= 0.70
+Logical Analyst only.
+Uses LOW-quality evidence:
+    combined_reliability < 0.70
 
-Round 2 produces:
+Round 3 produces:
     stance
     confidence
     reasoning
@@ -28,19 +28,19 @@ sys.path.append(
 )
 
 from backend.agents.team_b.state import VerificationState
-from backend.agents.team_b.personas import fact_checker
+from backend.agents.team_b.personas import logical_analyst
 
 
-ROUND_NUM = 2
+ROUND_NUM = 3
 HIGH_QUALITY_THRESHOLD = 0.70
 
 
-def round2_qa_node(
+def round3_qa_node(
     state: VerificationState
 ) -> VerificationState:
     """
-    Round 2:
-    Fact Checker analyzes only high-quality evidence.
+    Round 3:
+    Logical Analyst analyzes only low-quality evidence.
     """
 
     claim = state["claim"]
@@ -65,37 +65,37 @@ def round2_qa_node(
         0
     )
 
-    # Round 1 sets qa_round = 1
-    # Therefore this node becomes Round 2.
+    # Round 2 sets qa_round = 2
+    # Therefore this node becomes Round 3.
     current_round = (
-        state.get("qa_round", 1) + 1
+        state.get("qa_round", 2) + 1
     )
 
-    # ── Select high-quality evidence ────────────────────────────
+    # ── Select low-quality evidence ─────────────────────────────
 
-    high_quality = [
+    low_quality = [
         ev
         for ev in all_evidence
         if ev.get(
             "combined_reliability",
-            0.0
-        ) >= HIGH_QUALITY_THRESHOLD
+            1.0
+        ) < HIGH_QUALITY_THRESHOLD
     ]
 
     print(
-        f"[round2_qa] "
-        f"High-quality evidence: "
-        f"{len(high_quality)}/{len(all_evidence)}"
+        f"[round3_qa] "
+        f"Low-quality evidence: "
+        f"{len(low_quality)}/{len(all_evidence)}"
     )
 
-    # ── No high-quality evidence ────────────────────────────────
+    # ── No low-quality evidence ─────────────────────────────────
 
-    if not high_quality:
+    if not low_quality:
 
         print(
-            "[round2_qa] "
-            "No high-quality evidence. "
-            "Skipping Fact Checker reasoning."
+            "[round3_qa] "
+            "No low-quality evidence. "
+            "Skipping Logical Analyst reasoning."
         )
 
         return {
@@ -105,15 +105,13 @@ def round2_qa_node(
 
             "qa_history": qa_history,
 
-            # Round 2 was visited but did NOT
-            # produce reasoning.
             "rounds_executed": state.get(
                 "rounds_executed",
                 1
             ),
         }
 
-    # Memory available before Round 2
+    # Memory available before Round 3
     prior_memory = qa_memory.copy()
 
     try:
@@ -121,13 +119,13 @@ def round2_qa_node(
         # ── Step 1: Generate question ───────────────────────────
 
         print(
-            "[round2_qa] "
-            "Fact Checker generating question..."
+            "[round3_qa] "
+            "Logical Analyst generating question..."
         )
 
-        question = fact_checker.generate_question(
+        question = logical_analyst.generate_question(
             claim=claim,
-            evidence=high_quality,
+            evidence=low_quality,
             memory=prior_memory,
             round_num=ROUND_NUM,
         )
@@ -137,15 +135,15 @@ def round2_qa_node(
         # ── Step 2: Generate structured answer ──────────────────
 
         print(
-            "[round2_qa] "
-            "Fact Checker generating "
+            "[round3_qa] "
+            "Logical Analyst generating "
             "structured answer..."
         )
 
-        result = fact_checker.generate_structured_answer(
+        result = logical_analyst.generate_structured_answer(
             claim=claim,
             question=question,
-            evidence=high_quality,
+            evidence=low_quality,
             memory=prior_memory,
         )
 
@@ -170,7 +168,7 @@ def round2_qa_node(
 
         # ── Step 3: Extract insight ─────────────────────────────
 
-        insight = fact_checker.extract_insight(
+        insight = logical_analyst.extract_insight(
             question,
             reasoning
         )
@@ -180,7 +178,7 @@ def round2_qa_node(
         qa_memory.append({
             "round": ROUND_NUM,
 
-            "persona": "Fact Checker",
+            "persona": "Logical Analyst",
 
             "question": question,
 
@@ -198,7 +196,7 @@ def round2_qa_node(
         qa_entry = {
             "round": current_round,
 
-            "fact_checker": {
+            "logical_analyst": {
                 "stance": stance,
 
                 "reasoning": reasoning,
@@ -214,35 +212,31 @@ def round2_qa_node(
         )
 
         print(
-            "[round2_qa] "
-            f"Fact Checker stance={stance} "
+            "[round3_qa] "
+            f"Logical Analyst stance={stance} "
             f"confidence={confidence:.3f}"
         )
 
         print(
-            "[round2_qa] "
-            "Round 2 complete."
+            "[round3_qa] "
+            "Round 3 complete."
         )
 
     except Exception as e:
 
         print(
-            f"[round2_qa] "
-            f"Fact Checker failed: {e}"
+            f"[round3_qa] "
+            f"Logical Analyst failed: {e}"
         )
-
-        # Save failure information so the
-        # final node knows Round 2 did not
-        # produce a valid result.
 
         qa_entry = {
             "round": current_round,
 
-            "fact_checker": {
+            "logical_analyst": {
                 "stance": "UNCERTAIN",
 
                 "reasoning":
-                    f"Round 2 error: {e}",
+                    f"Round 3 error: {e}",
 
                 "confidence": 0.0,
             },
@@ -265,8 +259,6 @@ def round2_qa_node(
 
         "qa_history": qa_history,
 
-        # Round 2 produced reasoning only if
-        # the Fact Checker completed successfully.
         "rounds_executed": len([
             entry
             for entry in qa_history
