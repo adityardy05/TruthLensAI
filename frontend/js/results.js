@@ -49,16 +49,6 @@ function renderVerdictCard() {
         valEl.innerHTML = `${confNum}<span class="text-sm font-body-md">%</span>`;
     }
 
-    const sourcesEl = document.getElementById('results-sources-count');
-    if (sourcesEl && typeof REPORT_META !== 'undefined' && REPORT_META.sources) {
-        const srcCount = REPORT_META.sources.replace(/[^0-9]/g, '');
-        sourcesEl.textContent = srcCount || '9';
-    }
-
-    const explEl = document.getElementById('results-explanation');
-    if (explEl && typeof REPORT_META !== 'undefined' && REPORT_META.explanation) {
-        explEl.textContent = REPORT_META.explanation;
-    }
 }
 
 function renderLiveReviewers(insights) {
