@@ -224,7 +224,7 @@
 </div>
 <!-- Text mode -->
 <div id="mode-text">
-<textarea class="w-full bg-transparent border-none focus:ring-0 p-0 font-body-lg text-body-lg text-primary placeholder:text-surface-tint resize-none h-32 focus:outline-none" id="claim-input" placeholder="Enter claim here...">The government announced free electricity for every household starting next month.</textarea>
+<textarea class="w-full bg-transparent border-none focus:ring-0 p-0 font-body-lg text-body-lg text-primary placeholder:text-surface-tint resize-none h-32 focus:outline-none" id="claim-input" placeholder="Enter a claim to verify..."></textarea>
 <div class="text-right font-label-sm text-text-muted text-xs mt-1 pr-14" id="char-counter">0 / 1000 characters</div>
 </div>
 <!-- Image mode -->
@@ -242,7 +242,7 @@
 <div class="hidden mt-4 space-y-3" id="img-preview">
 <div class="p-3 bg-surface-container-low rounded-lg border border-glass-stroke">
 <p class="font-label-sm text-text-muted text-xs mb-1">Extracted text (OCR mock):</p>
-<textarea class="w-full bg-transparent text-sm font-body-md text-on-surface resize-none focus:ring-0 border-none focus:outline-none" id="ocr-text" rows="3">The government announced free electricity for every household starting next month.</textarea>
+<textarea class="w-full bg-transparent text-sm font-body-md text-on-surface resize-none focus:ring-0 border-none focus:outline-none" id="ocr-text" rows="3" placeholder="Extracted text will appear here after OCR."></textarea>
 </div>
 <button class="text-xs text-text-muted hover:text-error transition-colors font-label-sm" onclick="removeImage()">Remove image</button>
 </div>
@@ -258,7 +258,7 @@
 </div>
 <div class="hidden mt-3 p-3 bg-surface-container-low rounded-lg border border-glass-stroke" id="url-preview">
 <p class="font-label-sm text-text-muted text-xs mb-1">Extracted from URL:</p>
-<p class="font-body-md text-sm text-on-surface" id="url-extracted">The government announced free electricity for every household starting next month.</p>
+<p class="font-body-md text-sm text-on-surface" id="url-extracted">Article text will appear here after fetching the URL.</p>
 </div>
 <p class="text-xs text-error mt-2 hidden" id="url-error">That doesn't look like a valid URL.</p>
 </div>
@@ -340,7 +340,7 @@
 <span id="checking-claim-label">Target Claim</span>
 </div>
 <p class="font-headline-md text-headline-md text-primary leading-tight" id="checking-claim">
-                            "The government announced free electricity for every household starting next month."
+                            Submit a claim to start verification.
                         </p>
 </div>
 <!-- Checking Timeline -->
@@ -412,21 +412,11 @@
 </div>
 <!-- Terminal Content -->
 <div class="p-6 font-label-md text-label-md text-inverse-on-surface font-mono whitespace-pre-wrap overflow-y-auto flex-grow flex flex-col gap-2" id="terminal-content">
-<div class="text-white/60">TruthLens Core Engine v2.4.1 initialized.</div>
-<div class="text-white/60">Connecting to vector database... [OK]</div>
-<div class="mt-4"><span class="text-secondary-fixed">[DECOMPOSE]</span> Claim → 3 sub-claims for parallel evaluation</div>
-<div>  ├─ Sub 1: "Government announced free electricity"</div>
-<div>  ├─ Sub 2: "For every household"</div>
-<div>  └─ Sub 3: "Starting next month"</div>
-<div class="mt-2"><span class="text-tertiary-fixed-dim">[CREDIBILITY]</span> Initializing domain reputation scan...</div>
-<div><span class="text-tertiary-fixed-dim">[CREDIBILITY]</span> ndtv.com → score: 0.91 · status: <span class="text-[#00F0FF]">verified</span></div>
-<div><span class="text-tertiary-fixed-dim">[CREDIBILITY]</span> thehindu.com → score: 0.94 · status: <span class="text-[#00F0FF]">verified</span></div>
-<div class="mt-2"><span class="text-secondary-fixed-dim">[RETRIEVAL]</span> Tavily search: 9 sources found across news APIs.</div>
-<div><span class="text-secondary-fixed-dim">[RETRIEVAL]</span> FAISS index: 3 semantic matches in historical policy database.</div>
-<div class="mt-2 text-white/80" id="terminal-evidence-line" style="display:none;"><span class="text-[#00dbe9]">[EVIDENCE]</span> Cross-referencing official press releases...</div>
-<div class="mt-2 text-white/80" id="terminal-judge-line" style="display:none;"><span class="text-[#c2b9fd]">[JUDGE]</span> Evaluating claim context and source consensus...</div>
+<div class="text-white/60" id="terminal-placeholder">Waiting for the verification backend...</div>
+<div class="mt-2 text-white/80" id="terminal-evidence-line" style="display:none;"></div>
+<div class="mt-2 text-white/80" id="terminal-judge-line" style="display:none;"></div>
 <div class="mt-1 flex items-center text-[#00dbe9]" id="terminal-cursor-line">
-                                &gt; Awaiting consensus from reviewer nodes<span class="terminal-cursor"></span>
+                                &gt; Waiting for backend analysis<span class="terminal-cursor"></span>
 </div>
 </div>
 </div>
@@ -438,23 +428,23 @@
 <section class="glass-panel p-6 md:p-8 rounded-2xl border border-glass-stroke bg-white shadow-md flex flex-col md:flex-row gap-8 items-center md:items-start" data-purpose="verdict-card">
 <!-- Left: Verdict & Confidence -->
 <div class="flex flex-col items-center justify-center shrink-0 w-40">
-<div class="radial-progress mb-4" id="results-confidence-radial" style="background: conic-gradient(#ef4444 91%, #fee2e2 0);">
+<div class="radial-progress mb-4" id="results-confidence-radial" style="background: conic-gradient(#ef4444 0%, #fee2e2 0);">
 <div class="radial-progress-text flex flex-col items-center">
-<span class="text-2xl font-bold text-primary font-headline-md leading-none" id="results-confidence-val">91<span class="text-sm font-body-md">%</span></span>
+<span class="text-2xl font-bold text-primary font-headline-md leading-none" id="results-confidence-val">0<span class="text-sm font-body-md">%</span></span>
 </div>
 </div>
-<div class="text-error font-display font-bold tracking-widest text-lg uppercase mb-1" id="results-verdict">FAKE</div>
+<div class="text-error font-display font-bold tracking-widest text-lg uppercase mb-1" id="results-verdict">—</div>
 <div class="text-[10px] text-text-muted font-label-sm font-medium uppercase tracking-wide" id="results-confidence-label">High Confidence</div>
 </div>
 <!-- Middle: Explanation & Stats -->
 <div class="flex-grow text-center md:text-left">
 <p class="font-body-lg text-body-lg text-on-surface font-medium leading-relaxed mb-6" id="results-explanation">
-                                No official press release or gazette notification supports this claim, and it doesn't appear on any ministry website.
+                                Submit a claim to see the evidence-based final judgment.
                             </p>
 <div class="flex items-center justify-center md:justify-start gap-6 font-label-md text-label-md text-text-muted">
 <div class="flex items-center gap-1.5 bg-surface-container-low px-3 py-1.5 rounded-md border border-glass-stroke">
 <span class="material-symbols-outlined text-[16px] text-primary">description</span>
-<span>Sources: <strong class="text-primary font-bold ml-1" id="results-sources-count">9</strong></span>
+<span>Sources: <strong class="text-primary font-bold ml-1" id="results-sources-count">0</strong></span>
 </div>
 </div>
 </div>
@@ -530,7 +520,10 @@
 <h3 class="font-headline-md text-headline-md text-primary mb-4 flex items-center gap-2">
 <span class="material-symbols-outlined text-tertiary-fixed-dim">forum</span> Agent Deliberation
                         </h3>
-<div class="space-y-4">
+<div class="space-y-4" id="agent-feed">
+<div class="p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke text-text-muted text-sm">
+Submit a claim to see live reviewer findings here.
+</div>
 <!-- Agent Message 1 -->
 <div class="flex gap-4 p-4 rounded-xl bg-surface/50 border border-glass-stroke hover:bg-surface transition-colors duration-300">
 <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary border border-outline-variant">
@@ -589,6 +582,7 @@
 <span>Supporting: 1</span>
 </div>
 <div class="space-y-3" id="source-cards">
+<p class="text-text-muted text-sm">Verified sources will appear here after analysis.</p>
 <!-- Source 1 -->
 <div class="border border-glass-stroke rounded-xl overflow-hidden">
 <div class="flex justify-between items-center gap-3 p-4 bg-surface cursor-pointer hover:bg-surface-container-low transition-colors" onclick="toggleSource('src1')">
@@ -678,6 +672,7 @@
                     What the reviewers say
                 </h2>
 <div class="space-y-4" id="reviewer-cards">
+<p class="text-text-muted text-sm">Reviewer findings will appear after analysis.</p>
 <!-- Fact Checker -->
 <div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke hover:bg-surface-container-low transition-colors">
 <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary border border-outline-variant agent-pulse">
@@ -738,7 +733,8 @@
 <h2 class="font-headline-lg text-headline-lg text-primary">Know the Patterns</h2>
 <p class="font-body-md text-on-surface-variant">Identify common manipulative tactics before they spread.</p>
 </div>
-<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="pattern-cards">
+<p class="text-text-muted text-sm md:col-span-3">Detected reasoning and bias patterns will appear after analysis.</p>
 <!-- Pattern 1 -->
 <div class="glass-panel p-6 rounded-2xl border border-glass-stroke hover:-translate-y-1 transition-transform cursor-pointer bg-white shadow-md">
 <div class="w-12 h-12 rounded-full bg-error-container text-on-error-container flex items-center justify-center mb-4">
@@ -778,8 +774,8 @@
 <!-- Project Info -->
 <section class="mb-20 bg-white border border-glass-stroke rounded-xl p-8 shadow-md flex flex-col md:flex-row items-center justify-between gap-6 hover:shadow-lg transition-shadow duration-300">
 <div>
-<h2 class="font-headline-md text-headline-md text-primary mb-2">Project 45 — TruthLens</h2>
-<p class="font-body-md text-body-md text-on-surface-variant">B.Tech Computer Science Engineering</p>
+<h2 class="font-headline-md text-headline-md text-primary mb-2">TruthLensAI</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Multilingual multi-agent AI system for evidence-based claim verification.</p>
 </div>
 <div class="text-right">
 <p class="font-label-md text-label-md text-text-muted mb-1 uppercase tracking-wider">Built at</p>
