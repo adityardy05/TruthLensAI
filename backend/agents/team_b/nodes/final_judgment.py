@@ -265,26 +265,6 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
             response.get("recommendation") or "Verify independently"
         ).strip()
 
-        
-            "fact_checker":
-                response.get(
-                    "fact_checker_summary",
-                    ""
-                ),
-
-            "logical_analyst":
-                response.get(
-                    "logical_analyst_summary",
-                    ""
-                ),
-
-            "bias_detector":
-                response.get(
-                    "bias_detector_summary",
-                    ""
-                ),
-        }
-
         print(
             f"[final_judgment] "
             f"Verdict: {verdict} "
