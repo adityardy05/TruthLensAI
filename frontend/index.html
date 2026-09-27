@@ -521,40 +521,7 @@
 <span class="material-symbols-outlined text-tertiary-fixed-dim">forum</span> Agent Deliberation
                         </h3>
 <div class="space-y-4" id="agent-feed">
-<div class="p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke text-text-muted text-sm">
-Submit a claim to see live reviewer findings here.
-</div>
-<!-- Agent Message 1 -->
-<div class="flex gap-4 p-4 rounded-xl bg-surface/50 border border-glass-stroke hover:bg-surface transition-colors duration-300">
-<div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary border border-outline-variant">
-<span class="material-symbols-outlined text-sm">search</span>
-</div>
-<div>
-<div class="flex items-center gap-2 mb-1">
-<span class="font-label-md text-label-md text-primary font-bold">Evidence Agent</span>
-<span class="text-xs text-text-muted">Just now</span>
-</div>
-<p class="font-body-md text-body-md text-on-surface-variant">
-                                        Scanned 42 recent government press releases and main utility provider announcements. No mention of nationwide free electricity found. Did find a localized subsidy program in Region 4 for low-income households.
-                                    </p>
-</div>
-</div>
-<!-- Agent Message 2 -->
-<div class="flex gap-4 p-4 rounded-xl bg-surface/50 border border-glass-stroke hover:bg-surface transition-colors duration-300">
-<div class="flex-shrink-0 w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-secondary border border-outline-variant">
-<span class="material-symbols-outlined text-sm">gavel</span>
-</div>
-<div>
-<div class="flex items-center gap-2 mb-1">
-<span class="font-label-md text-label-md text-secondary font-bold">Judge Agent</span>
-<span class="text-xs text-text-muted">12s ago</span>
-</div>
-<p class="font-body-md text-body-md text-on-surface-variant">
-                                        Based on evidence, the claim extrapolates a highly specific regional program to a generalized national announcement. This represents a classic "False Generalization" pattern.
-                                    </p>
-</div>
-</div>
-</div>
+<div class="p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke text-text-muted text-sm">Submit a claim to see live reviewer findings here.</div>
 </div>
 <!-- Source Credibility & Pipeline -->
 <div class="space-y-8">
@@ -583,85 +550,6 @@ Submit a claim to see live reviewer findings here.
 </div>
 <div class="space-y-3" id="source-cards">
 <p class="text-text-muted text-sm">Verified sources will appear here after analysis.</p>
-<!-- Source 1 -->
-<div class="border border-glass-stroke rounded-xl overflow-hidden">
-<div class="flex justify-between items-center gap-3 p-4 bg-surface cursor-pointer hover:bg-surface-container-low transition-colors" onclick="toggleSource('src1')">
-<div class="min-w-0 flex-1">
-<span class="font-label-md text-primary font-bold">ndtv.com</span>
-<span class="ml-3 text-xs text-on-tertiary-container bg-tertiary-fixed/20 px-2 py-0.5 rounded font-label-sm">high factual</span>
-<span class="ml-2 text-xs text-error bg-error/10 px-2 py-0.5 rounded font-label-sm">Contradicts</span>
-</div>
-<div class="flex items-center gap-3 shrink-0">
-<span class="font-label-md text-text-muted">0.91</span>
-<span class="material-symbols-outlined text-sm text-text-muted" id="src1-icon">expand_more</span>
-</div>
-</div>
-<div class="w-full h-1 bg-surface-variant"><div class="h-full bg-on-tertiary-container rounded-r" style="width:91%"></div></div>
-<div class="hidden p-4 bg-surface-container-low border-t border-glass-stroke space-y-2" id="src1-body">
-<p class="font-body-md text-sm text-on-surface-variant italic">
-                                            "Ministry officials confirmed no such nationwide policy exists, calling the viral claim 'completely fabricated'."
-                                        </p>
-<div class="flex items-center gap-4 text-xs text-text-muted font-label-sm mt-2">
-<span>Published: 24 Aug 2026</span>
-<a class="flex items-center gap-1 text-primary hover:underline" href="#">
-                                                Open source <span class="material-symbols-outlined text-sm">open_in_new</span>
-</a>
-</div>
-</div>
-</div>
-<!-- Source 2 -->
-<div class="border border-glass-stroke rounded-xl overflow-hidden">
-<div class="flex justify-between items-center gap-3 p-4 bg-surface cursor-pointer hover:bg-surface-container-low transition-colors" onclick="toggleSource('src2')">
-<div class="min-w-0 flex-1">
-<span class="font-label-md text-primary font-bold">altnews.in</span>
-<span class="ml-3 text-xs text-on-tertiary-container bg-tertiary-fixed/20 px-2 py-0.5 rounded font-label-sm">high factual</span>
-<span class="ml-2 text-xs text-error bg-error/10 px-2 py-0.5 rounded font-label-sm">Contradicts</span>
-</div>
-<div class="flex items-center gap-3 shrink-0">
-<span class="font-label-md text-text-muted">0.87</span>
-<span class="material-symbols-outlined text-sm text-text-muted" id="src2-icon">expand_more</span>
-</div>
-</div>
-<div class="w-full h-1 bg-surface-variant"><div class="h-full bg-on-tertiary-container rounded-r" style="width:87%"></div></div>
-<div class="hidden p-4 bg-surface-container-low border-t border-glass-stroke space-y-2" id="src2-body">
-<p class="font-body-md text-sm text-on-surface-variant italic">
-                                            "AltNews investigation found the claim originated from a regional subsidy misquoted on social media."
-                                        </p>
-<div class="flex items-center gap-4 text-xs text-text-muted font-label-sm mt-2">
-<span>Published: 23 Aug 2026</span>
-<a class="flex items-center gap-1 text-primary hover:underline" href="#">
-                                                Open source <span class="material-symbols-outlined text-sm">open_in_new</span>
-</a>
-</div>
-</div>
-</div>
-<!-- Source 3 -->
-<div class="border border-glass-stroke rounded-xl overflow-hidden">
-<div class="flex justify-between items-center gap-3 p-4 bg-surface cursor-pointer hover:bg-surface-container-low transition-colors" onclick="toggleSource('src3')">
-<div class="min-w-0 flex-1">
-<span class="font-label-md text-primary font-bold">randomblog.net</span>
-<span class="ml-3 text-xs text-error bg-error/10 px-2 py-0.5 rounded font-label-sm">low factual</span>
-<span class="ml-2 text-xs text-on-tertiary-container bg-tertiary-fixed/20 px-2 py-0.5 rounded font-label-sm">Supports</span>
-</div>
-<div class="flex items-center gap-3 shrink-0">
-<span class="font-label-md text-text-muted">0.34</span>
-<span class="material-symbols-outlined text-sm text-text-muted" id="src3-icon">expand_more</span>
-</div>
-</div>
-<div class="w-full h-1 bg-surface-variant"><div class="h-full bg-error rounded-r" style="width:34%"></div></div>
-<div class="hidden p-4 bg-surface-container-low border-t border-glass-stroke space-y-2" id="src3-body">
-<p class="font-body-md text-sm text-on-surface-variant italic">
-                                            "Source unverified. Domain registered 2 months ago with no editorial history found."
-                                        </p>
-<div class="flex items-center gap-4 text-xs text-text-muted font-label-sm mt-2">
-<span>Published: 22 Aug 2026</span>
-<a class="flex items-center gap-1 text-primary hover:underline" href="#">
-                                                Open source <span class="material-symbols-outlined text-sm">open_in_new</span>
-</a>
-</div>
-</div>
-</div>
-</div>
 </div>
 </div>
 </div>
@@ -673,60 +561,7 @@ Submit a claim to see live reviewer findings here.
                 </h2>
 <div class="space-y-4" id="reviewer-cards">
 <p class="text-text-muted text-sm">Reviewer findings will appear after analysis.</p>
-<!-- Fact Checker -->
-<div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke hover:bg-surface-container-low transition-colors">
-<div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary border border-outline-variant agent-pulse">
-<span class="material-symbols-outlined text-sm">fact_check</span>
 </div>
-<div>
-<div class="flex items-center gap-3 mb-1">
-<span class="font-label-md text-primary font-bold">Fact Checker</span>
-<span class="text-xs px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm">High confidence</span>
-<span class="text-xs text-text-muted">Sources: 1, 2</span>
-</div>
-<p class="font-body-md text-sm text-on-surface-variant">
-                            Scanned 42 recent government press releases and main utility provider announcements.
-                            No mention of nationwide free electricity found. Did find a localized subsidy program
-                            in Region 4 for low-income households.
-                        </p>
-</div>
-</div>
-<!-- Logical Analyst -->
-<div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke hover:bg-surface-container-low transition-colors">
-<div class="flex-shrink-0 w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-secondary border border-outline-variant agent-pulse" style="animation-delay: 0.5s;">
-<span class="material-symbols-outlined text-sm">psychology</span>
-</div>
-<div>
-<div class="flex items-center gap-3 mb-1">
-<span class="font-label-md text-secondary font-bold">Logical Analyst</span>
-<span class="text-xs px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm">High confidence</span>
-<span class="text-xs text-text-muted">Sources: 1</span>
-</div>
-<p class="font-body-md text-sm text-on-surface-variant">
-                            Based on evidence, the claim extrapolates a highly specific regional program to a
-                            generalized national announcement. This represents a classic "False Generalization" pattern.
-                        </p>
-</div>
-</div>
-<!-- Bias Detector -->
-<div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke hover:bg-surface-container-low transition-colors">
-<div class="flex-shrink-0 w-10 h-10 rounded-full bg-tertiary-fixed/30 flex items-center justify-center text-tertiary-container border border-outline-variant agent-pulse" style="animation-delay: 1s;">
-<span class="material-symbols-outlined text-sm">visibility</span>
-</div>
-<div>
-<div class="flex items-center gap-3 mb-1">
-<span class="font-label-md text-tertiary-container font-bold">Bias Detector</span>
-<span class="text-xs px-2 py-0.5 rounded-full bg-tertiary-fixed/20 text-tertiary-container font-label-sm">Medium confidence</span>
-<span class="text-xs text-text-muted">Sources: 2</span>
-</div>
-<p class="font-body-md text-sm text-on-surface-variant">
-                            High emotional language used in the source blog post indicates sensationalism rather
-                            than objective reporting. The framing is designed to elicit strong reactions rather than inform.
-                        </p>
-</div>
-</div>
-</div>
-</section>
 <!-- Patterns of Deception -->
 <section class="space-y-8">
 <div class="text-center max-w-2xl mx-auto space-y-4">
@@ -734,31 +569,7 @@ Submit a claim to see live reviewer findings here.
 <p class="font-body-md text-on-surface-variant">Identify common manipulative tactics before they spread.</p>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="pattern-cards">
-<p class="text-text-muted text-sm md:col-span-3">Detected reasoning and bias patterns will appear after analysis.</p>
-<!-- Pattern 1 -->
-<div class="glass-panel p-6 rounded-2xl border border-glass-stroke hover:-translate-y-1 transition-transform cursor-pointer bg-white shadow-md">
-<div class="w-12 h-12 rounded-full bg-error-container text-on-error-container flex items-center justify-center mb-4">
-<span class="material-symbols-outlined">warning</span>
-</div>
-<h4 class="font-headline-md text-primary text-xl mb-2">False Generalization</h4>
-<p class="font-body-md text-text-muted text-sm">Taking a hyper-local event or policy and presenting it as a national or global standard.</p>
-</div>
-<!-- Pattern 2 -->
-<div class="glass-panel p-6 rounded-2xl border border-glass-stroke hover:-translate-y-1 transition-transform cursor-pointer bg-white shadow-md">
-<div class="w-12 h-12 rounded-full bg-secondary-container text-secondary flex items-center justify-center mb-4">
-<span class="material-symbols-outlined">psychology</span>
-</div>
-<h4 class="font-headline-md text-primary text-xl mb-2">Emotional Anchoring</h4>
-<p class="font-body-md text-text-muted text-sm">Using highly charged language to override logical assessment of the core facts.</p>
-</div>
-<!-- Pattern 3 -->
-<div class="glass-panel p-6 rounded-2xl border border-glass-stroke hover:-translate-y-1 transition-transform cursor-pointer bg-white shadow-md">
-<div class="w-12 h-12 rounded-full bg-primary-fixed text-primary-container flex items-center justify-center mb-4">
-<span class="material-symbols-outlined">content_cut</span>
-</div>
-<h4 class="font-headline-md text-primary text-xl mb-2">Context Stripping</h4>
-<p class="font-body-md text-text-muted text-sm">Removing quotes or statistics from their original context to alter their meaning completely.</p>
-</div>
+<div class="text-text-muted text-sm md:col-span-3">Detected reasoning and bias patterns will appear after analysis.</div>
 </div>
 </section>
 </div>
