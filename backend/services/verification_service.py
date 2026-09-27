@@ -33,6 +33,7 @@ class VerificationService:
             original_language=language,
             sub_claims=retrieval["sub_claims"],
         )
+        result = self._require_verifiable_sources(retrieval, result)
         return self._response(input_type, original_claim, language, normalized_claim, retrieval, result)
 
     def verify_image(self, image_bytes: bytes) -> dict[str, Any]:
@@ -49,6 +50,7 @@ class VerificationService:
             original_claim=ocr["original_text"], original_language=ocr["detected_language"],
             sub_claims=retrieval["sub_claims"],
         )
+        result = self._require_verifiable_sources(retrieval, result)
         response = self._response("image", ocr["original_text"], ocr["detected_language"], ocr["english_text"], retrieval, result)
         response["input_metadata"] = {"ocr_text": ocr["original_text"]}
         return response
@@ -58,6 +60,24 @@ class VerificationService:
         response = self.verify_text(text, input_type="url")
         response["input_metadata"] = {"url": url}
         return response
+
+    @staticmethod
+    def _require_verifiable_sources(retrieval: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+        """Do not present local dataset matches as verified web evidence."""
+        metadata = retrieval.get("metadata", {})
+        if "num_live_web_sources" not in metadata or metadata["num_live_web_sources"] > 0:
+            return result
+
+        return {
+            **result,
+            "verdict": "UNVERIFIABLE",
+            "final_confidence": 0.0,
+            "justification": (
+                "No live web sources were retrieved. Local dataset matches are "
+                "contextual only and do not verify this claim."
+            ),
+            "recommendation": "Verify independently using credible, named sources.",
+        }
 
     @staticmethod
     def _response(input_type: str, original_claim: str, language: str, normalized_claim: str,

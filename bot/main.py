@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from backend.core.config import load_settings, validate_runtime_config
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 

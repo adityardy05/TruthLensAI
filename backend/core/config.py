@@ -9,6 +9,7 @@ from backend.core.env_loader import load_dotenv
 load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 @dataclass(frozen=True)
