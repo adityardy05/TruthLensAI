@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 from backend.core.config import load_settings, validate_runtime_config
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
@@ -13,6 +9,8 @@ settings = load_settings()
 validate_runtime_config(settings, mode="bot")
 
 from bot.handlers import start, verify_photo, verify_text
+
+load_dotenv()
 
 
 def main() -> None:
