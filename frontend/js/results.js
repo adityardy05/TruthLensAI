@@ -34,10 +34,12 @@ function renderVerdictCard() {
         if (value) value.innerHTML = `${confidence}<span class="text-sm font-body-md">%</span>`;
         renderLiveEvidence(result.evidence);
         renderLiveReviewers(result.persona_insights);
+        renderLiveAgentFeed(result.persona_insights, result.rounds_executed, result.verdict, result.confidence);
+        renderLivePatterns(result.patterns_detected);
         return;
     }
-    const confStr = (typeof REPORT_META !== 'undefined' && REPORT_META.confidence) ? REPORT_META.confidence : '91%';
-    const confNum = parseInt(confStr, 10) || 91;
+    const confStr = (typeof REPORT_META !== 'undefined' && REPORT_META.confidence) ? REPORT_META.confidence : '0%';
+    const confNum = parseInt(confStr, 10) || 0;
 
     const radial = document.getElementById('results-confidence-radial');
     const valEl = document.getElementById('results-confidence-val');
@@ -64,6 +66,53 @@ function renderLiveReviewers(insights) {
     const cards = document.getElementById('reviewer-cards');
     if (!cards) return;
     cards.innerHTML = Object.entries(insights || {}).map(([name, insight]) => `<div class="flex gap-4 p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke"><div><span class="font-label-md text-primary font-bold">${escapeHtml(name.replace(/_/g, ' '))}</span><p class="font-body-md text-sm text-on-surface-variant mt-1">${escapeHtml(String(insight))}</p></div></div>`).join('');
+}
+
+function renderLiveAgentFeed(insights, rounds, verdict, confidence) {
+    const feed = document.getElementById('agent-feed');
+    if (!feed) return;
+    const entries = Object.entries(insights || {}).filter(([, value]) => String(value || '').trim());
+    if (!entries.length) {
+        feed.innerHTML = '<div class="p-5 rounded-xl bg-surface-container-low/50 border border-glass-stroke text-text-muted text-sm">No reviewer findings were returned by the verification pipeline.</div>';
+        return;
+    }
+    feed.innerHTML = entries.map(([name, insight]) => `
+        <div class="flex gap-4 p-4 rounded-xl bg-surface/50 border border-glass-stroke hover:bg-surface transition-colors duration-300">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center text-primary border border-outline-variant">
+                <span class="material-symbols-outlined text-sm">smart_toy</span>
+            </div>
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="font-label-md text-label-md text-primary font-bold">${escapeHtml(name.replace(/_/g, ' '))}</span>
+                    <span class="text-xs text-text-muted">${escapeHtml(String(rounds || 0))} round(s)</span>
+                </div>
+                <p class="font-body-md text-body-md text-on-surface-variant">${escapeHtml(String(insight))}</p>
+            </div>
+        </div>`
+    ).join('') + `
+        <div class="p-4 rounded-xl bg-surface-container-low border border-glass-stroke text-sm text-text-muted">
+            Final judgment: <strong class="text-primary">${escapeHtml(String(verdict || 'UNVERIFIABLE'))}</strong>
+            · confidence ${escapeHtml(String(Math.round(Number(confidence) || 0)))}%
+        </div>`;
+}
+
+function renderLivePatterns(patterns) {
+    const cards = document.getElementById('pattern-cards');
+    if (!cards) return;
+    const values = Array.isArray(patterns) ? patterns.filter(Boolean).slice(0, 3) : [];
+    if (!values.length) {
+        cards.innerHTML = '<div class="glass-panel p-6 rounded-2xl border border-glass-stroke bg-white shadow-md md:col-span-3"><h4 class="font-headline-md text-primary text-xl mb-2">No specific pattern reported</h4><p class="font-body-md text-text-muted text-sm">The current verification did not return a specific manipulation pattern from the analysis.</p></div>';
+        return;
+    }
+    cards.innerHTML = values.map((pattern, index) => `
+        <div class="glass-panel p-6 rounded-2xl border border-glass-stroke bg-white shadow-md">
+            <div class="w-12 h-12 rounded-full bg-secondary-container text-secondary flex items-center justify-center mb-4">
+                <span class="material-symbols-outlined">${index === 0 ? 'analytics' : index === 1 ? 'psychology' : 'visibility'}</span>
+            </div>
+            <h4 class="font-headline-md text-primary text-xl mb-2">Detected pattern ${index + 1}</h4>
+            <p class="font-body-md text-text-muted text-sm">${escapeHtml(String(pattern))}</p>
+        </div>`
+    ).join('');
 }
 
 function renderLiveEvidence(evidence) {
