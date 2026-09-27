@@ -86,6 +86,7 @@ Return ONLY valid JSON:
     "fact_checker_summary": "<one line from the selected Fact Checker result>",
     "logical_analyst_summary": "<one line from the selected Logical Analyst result>",
     "bias_detector_summary": "<one line from the selected Bias Detector result>",
+    "patterns_detected": ["<0-3 specific patterns explicitly supported by the analysis>"],
     "recommendation": "Do not share | Likely accurate | Verify independently | Partially accurate"
 }}
 """
@@ -232,17 +233,39 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
             )
         )
 
-        justification = response.get(
-            "justification",
-            "Unable to generate justification."
-        )
-
-        recommendation = response.get(
-            "recommendation",
-            "Verify independently"
-        )
+        justification = str(response.get("justification") or "").strip()
 
         persona_insights = {
+            "fact_checker": str(response.get("fact_checker_summary") or "").strip(),
+            "logical_analyst": str(response.get("logical_analyst_summary") or "").strip(),
+            "bias_detector": str(response.get("bias_detector_summary") or "").strip(),
+        }
+
+        if not justification:
+            usable = [value for value in persona_insights.values() if value]
+            justification = (
+                " ".join(usable[:2])
+                if usable
+                else _fallback_verdict(
+                    stance_breakdown,
+                    state.get("avg_source_quality", 0.5)
+                )[2]
+            )
+
+        patterns_detected = response.get("patterns_detected", [])
+        if not isinstance(patterns_detected, list):
+            patterns_detected = [str(patterns_detected)]
+        patterns_detected = [
+            str(pattern).strip()
+            for pattern in patterns_detected
+            if str(pattern).strip()
+        ][:3]
+
+        recommendation = str(
+            response.get("recommendation") or "Verify independently"
+        ).strip()
+
+        
             "fact_checker":
                 response.get(
                     "fact_checker_summary",
@@ -290,21 +313,14 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
         )
 
         persona_insights = {
-            "fact_checker":
-                resolved_personas[
-                    "Fact Checker"
-                ].get("insight", ""),
-
-            "logical_analyst":
-                resolved_personas[
-                    "Logical Analyst"
-                ].get("insight", ""),
-
-            "bias_detector":
-                resolved_personas[
-                    "Bias Detector"
-                ].get("insight", ""),
+            "fact_checker": resolved_personas["Fact Checker"].get("insight", ""),
+            "logical_analyst": resolved_personas["Logical Analyst"].get("insight", ""),
+            "bias_detector": resolved_personas["Bias Detector"].get("insight", ""),
         }
+
+        patterns_detected = []
+        if persona_insights["bias_detector"]:
+            patterns_detected = [persona_insights["bias_detector"]]
 
         llm_calls += 1
 
@@ -320,6 +336,8 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
         "stance_breakdown": stance_breakdown,
 
         "persona_insights": persona_insights,
+
+        "patterns_detected": patterns_detected,
 
         "coverage_score": round(
             coverage_score,
