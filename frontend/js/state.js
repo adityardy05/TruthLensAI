@@ -81,8 +81,8 @@ function isClaimComplete() {
    existing Recent Claims behaviour. Also session-only. */
 let claimHistory = [];
 
-function addToHistory(claim) {
-    claimHistory.unshift({ claim: claim, verdict: 'FALSE', time: 'just now' });
+function addToHistory(claim, verdict = 'UNVERIFIABLE') {
+    claimHistory.unshift({ claim: claim, verdict: verdict, time: 'just now' });
     renderHistory();
 }
 
