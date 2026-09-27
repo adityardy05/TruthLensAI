@@ -65,7 +65,7 @@ function exportReport() {
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(120);
         doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 30);
-        doc.text(REPORT_META.strapline, 20, 36);
+        doc.text('TruthLensAI · Evidence-grounded multi-agent verification', 20, 36);
 
         doc.setDrawColor(220);
         doc.line(20, 41, 190, 41);
@@ -163,7 +163,7 @@ function exportReport() {
         // Footer
         doc.setFontSize(8);
         doc.setTextColor(160);
-        doc.text(REPORT_META.footer, 20, 284);
+        doc.text('TruthLensAI · Generated from the current verification result', 20, 284);
 
         doc.save(`TruthLens_Report_${Date.now()}.pdf`);
 
