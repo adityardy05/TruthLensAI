@@ -160,7 +160,7 @@ function renderHistory() {
     list.classList.remove('hidden');
     list.innerHTML = history.slice(0, 5).map(h => `
                 <div class="w-full py-3 px-4 glass-panel rounded-lg font-body-md flex items-center gap-3 cursor-pointer hover:bg-surface-container-low transition-colors bg-white" onclick="switchView('results')">
-                    <div class="w-2 h-2 rounded-full bg-error shrink-0"></div>
+                    <div class="w-2 h-2 rounded-full ${String(h.verdict || '').toUpperCase() === 'TRUE' ? 'bg-tertiary-fixed-dim' : String(h.verdict || '').toUpperCase() === 'FALSE' ? 'bg-error' : 'bg-secondary'} shrink-0"></div>
                     <span class="flex-1 text-left text-on-surface truncate text-sm">${escapeHtml(h.claim)}</span>
                     <span class="font-label-sm text-text-muted text-xs shrink-0">${escapeHtml(h.time)}</span>
                 </div>
