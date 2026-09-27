@@ -3,10 +3,9 @@
    The Results view: verdict readout, the expandable evidence /
    source cards, Recent Claims, and the reset back to Verify.
 
-   The verdict, sub-claims, sources and reviewer findings are static
-   markup in index.html for now. readVerdictFromResults() is the one
-   place the rest of the app asks "what did this come out as", so a
-   real backend response only needs wiring in here.
+   Results are populated from the current backend verification response.
+   The HTML only provides empty containers; live evidence, reviewer
+   findings, patterns and confidence are rendered after verification.
    ============================================================ */
 
 /* Reads the verdict off the Results view rather than hard-coding it,
@@ -14,7 +13,7 @@
 function readVerdictFromResults() {
     const el = document.querySelector('#view-results .font-display') || document.getElementById('results-verdict');
     const text = el ? el.innerText.trim() : '';
-    return text || 'FALSE';
+    return text || 'UNVERIFIABLE';
 }
 // Kept so any existing reference still works
 const currentVerdictText = readVerdictFromResults;
