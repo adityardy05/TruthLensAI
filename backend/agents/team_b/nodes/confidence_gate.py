@@ -14,9 +14,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from backend.agents.team_b.state import VerificationState
 
 
-# >= 0.85 → skip Round 2 and Round 3
-# < 0.85  → continue to Round 2
-CONFIDENCE_THRESHOLD = 0.85
+# >= 0.80 → skip Round 2 and Round 3
+# < 0.80  → continue to Round 2
+CONFIDENCE_THRESHOLD = 0.80
 
 
 # Words in answers that signal uncertainty

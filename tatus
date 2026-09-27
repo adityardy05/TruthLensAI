@@ -1,0 +1,384 @@
+[1mdiff --git a/backend/agents/team_b/nodes/confidence_gate.py b/backend/agents/team_b/nodes/confidence_gate.py[m
+[1mindex 3df2398..ee76142 100644[m
+[1m--- a/backend/agents/team_b/nodes/confidence_gate.py[m
+[1m+++ b/backend/agents/team_b/nodes/confidence_gate.py[m
+[36m@@ -14,9 +14,9 @@[m [msys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))[m
+ from backend.agents.team_b.state import VerificationState[m
+ [m
+ [m
+[31m-# >= 0.85 → skip Round 2 and Round 3[m
+[31m-# < 0.85  → continue to Round 2[m
+[31m-CONFIDENCE_THRESHOLD = 0.85[m
+[32m+[m[32m# >= 0.80 → skip Round 2 and Round 3[m
+[32m+[m[32m# < 0.80  → continue to Round 2[m
+[32m+[m[32mCONFIDENCE_THRESHOLD = 0.80[m
+ [m
+ [m
+ # Words in answers that signal uncertainty[m
+[1mdiff --git a/backend/app.py b/backend/app.py[m
+[1mindex 03b8cd8..032cffd 100644[m
+[1m--- a/backend/app.py[m
+[1m+++ b/backend/app.py[m
+[36m@@ -3,13 +3,14 @@[m [mfrom __future__ import annotations[m
+ from flask import Flask, send_from_directory[m
+ [m
+ from backend.api.verification import api[m
+[31m-from backend.core.config import PROJECT_ROOT, load_settings[m
+[32m+[m[32mfrom backend.core.config import PROJECT_ROOT, load_settings, validate_runtime_config[m
+ from backend.rag.retriever import TeamARetrievalPipeline[m
+ from backend.services.verification_service import VerificationService[m
+ [m
+ [m
+ def create_app(test_config: dict | None = None) -> Flask:[m
+     settings = load_settings()[m
+[32m+[m[32m    validate_runtime_config(settings, mode="web", strict=False)[m
+     frontend_dir = PROJECT_ROOT / "frontend"[m
+     app = Flask(__name__, static_folder=str(frontend_dir), static_url_path="")[m
+     app.config.from_mapping(MAX_CONTENT_LENGTH=settings.max_upload_bytes)[m
+[1mdiff --git a/backend/core/config.py b/backend/core/config.py[m
+[1mindex 849f591..1e58e44 100644[m
+[1m--- a/backend/core/config.py[m
+[1m+++ b/backend/core/config.py[m
+[36m@@ -4,6 +4,9 @@[m [mimport os[m
+ from dataclasses import dataclass[m
+ from pathlib import Path[m
+ [m
+[32m+[m[32mfrom backend.core.env_loader import load_dotenv[m
+[32m+[m
+[32m+[m[32mload_dotenv()[m
+ [m
+ PROJECT_ROOT = Path(__file__).resolve().parents[2][m
+ [m
+[36m@@ -33,3 +36,43 @@[m [mdef load_settings() -> Settings:[m
+         request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "120")),[m
+         frontend_origin=os.getenv("FRONTEND_ORIGIN") or None,[m
+     )[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef validate_runtime_config(settings: Settings, *, mode: str = "web", strict: bool = False) -> bool:[m
+[32m+[m[32m    """Validate runtime config.[m
+[32m+[m
+[32m+[m[32m    Web retrieval and FAISS are optional for demo-mode startup. In non-strict mode we[m
+[32m+[m[32m    log warnings and continue so the app still serves the frontend; in strict mode we[m
+[32m+[m[32m    fail fast if required integration values are missing.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    placeholder_values = {"your_tavily_key_here", "your_telegram_bot_token_here"}[m
+[32m+[m[32m    warnings: list[str] = [][m
+[32m+[m
+[32m+[m[32m    if mode == "web":[m
+[32m+[m[32m        if not settings.tavily_api_key or settings.tavily_api_key in placeholder_values:[m
+[32m+[m[32m            warnings.append("TAVILY_API_KEY missing or placeholder; live web retrieval will be disabled.")[m
+[32m+[m
+[32m+[m[32m        if not settings.faiss_index_path.exists() or not settings.faiss_metadata_path.exists():[m
+[32m+[m[32m            warnings.append([m
+[32m+[m[32m                f"FAISS index missing: {settings.faiss_index_path} and {settings.faiss_metadata_path}; "[m
+[32m+[m[32m                "local retrieval will be disabled."[m
+[32m+[m[32m            )[m
+[32m+[m
+[32m+[m[32m    elif mode == "bot":[m
+[32m+[m[32m        token = os.getenv("TELEGRAM_BOT_TOKEN") or ""[m
+[32m+[m[32m        if not token or token in placeholder_values or ":" not in token:[m
+[32m+[m[32m            if strict:[m
+[32m+[m[32m                raise RuntimeError([m
+[32m+[m[32m                    "Missing or invalid TELEGRAM_BOT_TOKEN. Create a bot with BotFather and set the real token in the .env file."[m
+[32m+[m[32m                )[m
+[32m+[m[32m            warnings.append("TELEGRAM_BOT_TOKEN missing or invalid; bot startup will be skipped.")[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        raise ValueError(f"Unsupported runtime config mode: {mode}")[m
+[32m+[m
+[32m+[m[32m    if warnings:[m
+[32m+[m[32m        print("[config] Warning:")[m
+[32m+[m[32m        for warning in warnings:[m
+[32m+[m[32m            print(f"[config] - {warning}")[m
+[32m+[m[32m        return False[m
+[32m+[m
+[32m+[m[32m    return True[m
+[1mdiff --git a/backend/rag/retriever.py b/backend/rag/retriever.py[m
+[1mindex 8c02afc..a093b02 100644[m
+[1m--- a/backend/rag/retriever.py[m
+[1m+++ b/backend/rag/retriever.py[m
+[36m@@ -24,8 +24,12 @@[m [mimport sys[m
+ import math[m
+ import time[m
+ import pickle[m
+[32m+[m[32mimport hashlib[m
+[32m+[m[32mimport logging[m
+[32m+[m[32mimport threading[m
+[32m+[m[32mimport tempfile[m
+ import numpy as np[m
+[31m-from datetime import datetime[m
+[32m+[m[32mfrom datetime import datetime, timezone[m
+ from typing import List, Dict, Any, Optional[m
+ [m
+ # Optional dependency fallbacks[m
+[36m@@ -68,6 +72,32 @@[m [mif BASE_DIR not in sys.path:[m
+ from backend.rag.domain_credibility import HybridDomainCredibility[m
+ from backend.rag.web_retriever import HybridScraper[m
+ [m
+[32m+[m[32mlog = logging.getLogger(__name__)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef tavily_results_to_docs(tavily_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:[m
+[32m+[m[32m    """Convert Tavily or normalized web results into cache metadata documents."""[m
+[32m+[m[32m    docs = [][m
+[32m+[m[32m    for result in tavily_results:[m
+[32m+[m[32m        content = result.get("content") or result.get("text_snippet") or result.get("snippet", "")[m
+[32m+[m[32m        url = result.get("url") or result.get("source_url", "")[m
+[32m+[m[32m        if not content or not str(content).strip() or not url:[m
+[32m+[m[32m            continue[m
+[32m+[m
+[32m+[m[32m        docs.append({[m
+[32m+[m[32m            "text": str(content).strip(),[m
+[32m+[m[32m            "cleaned_text": str(content).strip(),[m
+[32m+[m[32m            "url": url,[m
+[32m+[m[32m            "title": result.get("title", ""),[m
+[32m+[m[32m            "statement": result.get("title", ""),[m
+[32m+[m[32m            "origin": "tavily_cache",[m
+[32m+[m[32m            "label": "unverified",[m
+[32m+[m[32m            "tavily_score": float(result.get("score", result.get("retrieval_score", 0.0)) or 0.0),[m
+[32m+[m[32m            "rd_score": None,[m
+[32m+[m[32m            "cached_at": datetime.now(timezone.utc).isoformat(),[m
+[32m+[m[32m        })[m
+[32m+[m[32m    return docs[m
+[32m+[m
+ # ================================================================[m
+ # RECENCY SCORING ENGINE[m
+ # s₄ = recency_score(pub_date)[m
+[36m@@ -179,6 +209,10 @@[m [mclass TeamARetrievalPipeline:[m
+         self.faiss_index = None[m
+         self.metadata = [][m
+         self.bm25_index = None[m
+[32m+[m[32m        self.index_path = index_path[m
+[32m+[m[32m        self.metadata_path = metadata_path[m
+[32m+[m[32m        self._index_lock = threading.RLock()[m
+[32m+[m[32m        self._ingested_hashes = set()[m
+ [m
+         if HAS_FAISS and index_path and metadata_path and os.path.exists(index_path) and os.path.exists(metadata_path):[m
+             try:[m
+[36m@@ -189,6 +223,13 @@[m [mclass TeamARetrievalPipeline:[m
+                 with open(metadata_path, "rb") as f:[m
+                     self.metadata = pickle.load(f)[m
+ [m
+[32m+[m[32m                for doc in self.metadata:[m
+[32m+[m[32m                    if doc.get("url"):[m
+[32m+[m[32m                        self._ingested_hashes.add(self._content_hash(doc["url"]))[m
+[32m+[m[32m                    text = doc.get("text") or doc.get("cleaned_text") or doc.get("statement")[m
+[32m+[m[32m                    if text:[m
+[32m+[m[32m                        self._ingested_hashes.add(self._content_hash(text))[m
+[32m+[m
+                 if HAS_BM25:[m
+                     tokenized_corpus = [][m
+                     for doc in self.metadata:[m
+[36m@@ -223,11 +264,116 @@[m [mclass TeamARetrievalPipeline:[m
+             if not self.scraper.api_key:[m
+                 print("[TeamA Engine] Tavily API key not set. Skipping live web retrieval.")[m
+                 return [][m
+[31m-            return self.scraper.search_and_extract(query=query, max_results=max_results)[m
+[32m+[m[32m            results = self.scraper.search_and_extract(query=query, max_results=max_results)[m
+[32m+[m[32m            if results:[m
+[32m+[m[32m                try:[m
+[32m+[m[32m                    summary = self.cache_tavily_results(results)[m
+[32m+[m[32m                    log.info([m
+[32m+[m[32m                        "Tavily cache: cached=%s skipped=%s failed=%s",[m
+[32m+[m[32m                        summary["cached"], summary["skipped"], summary["failed"],[m
+[32m+[m[32m                    )[m
+[32m+[m[32m                except Exception as e:[m
+[32m+[m[32m                    log.warning("Tavily cache failed (non-fatal): %s", e)[m
+[32m+[m[32m            return results[m
+         except Exception as e:[m
+             print(f"[TeamA Engine] Live web retrieval error: {e}")[m
+             return [][m
+ [m
+[32m+[m[32m    @staticmethod[m
+[32m+[m[32m    def _content_hash(value: str) -> str:[m
+[32m+[m[32m        return hashlib.md5(value.encode("utf-8")).hexdigest()[m
+[32m+[m
+[32m+[m[32m    def _persist_cache(self) -> None:[m
+[32m+[m[32m        """Persist the index and metadata through same-directory temporary files."""[m
+[32m+[m[32m        if not self.index_path or not self.metadata_path:[m
+[32m+[m[32m            raise ValueError("FAISS index and metadata paths are required for caching")[m
+[32m+[m
+[32m+[m[32m        index_dir = os.path.dirname(os.path.abspath(self.index_path))[m
+[32m+[m[32m        metadata_dir = os.path.dirname(os.path.abspath(self.metadata_path))[m
+[32m+[m[32m        os.makedirs(index_dir, exist_ok=True)[m
+[32m+[m[32m        os.makedirs(metadata_dir, exist_ok=True)[m
+[32m+[m
+[32m+[m[32m        index_tmp = None[m
+[32m+[m[32m        metadata_tmp = None[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            with tempfile.NamedTemporaryFile(dir=index_dir, suffix=".faiss.tmp", delete=False) as file:[m
+[32m+[m[32m                index_tmp = file.name[m
+[32m+[m[32m            with tempfile.NamedTemporaryFile(dir=metadata_dir, suffix=".pkl.tmp", delete=False) as file:[m
+[32m+[m[32m                metadata_tmp = file.name[m
+[32m+[m
+[32m+[m[32m            faiss.write_index(self.faiss_index, index_tmp)[m
+[32m+[m[32m            with open(metadata_tmp, "wb") as file:[m
+[32m+[m[32m                pickle.dump(self.metadata, file)[m
+[32m+[m[32m            os.replace(index_tmp, self.index_path)[m
+[32m+[m[32m            os.replace(metadata_tmp, self.metadata_path)[m
+[32m+[m[32m        finally:[m
+[32m+[m[32m            for temp_path in (index_tmp, metadata_tmp):[m
+[32m+[m[32m                if temp_path and os.path.exists(temp_path):[m
+[32m+[m[32m                    os.unlink(temp_path)[m
+[32m+[m
+[32m+[m[32m    def cache_tavily_results(self, tavily_results: List[Dict[str, Any]]) -> Dict[str, int]:[m
+[32m+[m[32m        """Best-effort cache of normalized Tavily evidence into the loaded FAISS index."""[m
+[32m+[m[32m        if not tavily_results:[m
+[32m+[m[32m            return {"cached": 0, "skipped": 0, "failed": 0}[m
+[32m+[m
+[32m+[m[32m        docs = tavily_results_to_docs(tavily_results)[m
+[32m+[m[32m        if not docs:[m
+[32m+[m[32m            return {"cached": 0, "skipped": len(tavily_results), "failed": 0}[m
+[32m+[m[32m        if self.faiss_index is None:[m
+[32m+[m[32m            return {"cached": 0, "skipped": len(docs), "failed": len(docs)}[m
+[32m+[m
+[32m+[m[32m        new_docs = [][m
+[32m+[m[32m        new_hashes = [][m
+[32m+[m[32m        pending_hashes = set()[m
+[32m+[m[32m        skipped = len(tavily_results) - len(docs)[m
+[32m+[m[32m        for doc in docs:[m
+[32m+[m[32m            url_hash = self._content_hash(doc["url"])[m
+[32m+[m[32m            content_hash = self._content_hash(doc["text"])[m
+[32m+[m[32m            if ([m
+[32m+[m[32m                url_hash in self._ingested_hashes[m
+[32m+[m[32m                or content_hash in self._ingested_hashes[m
+[32m+[m[32m                or url_hash in pending_hashes[m
+[32m+[m[32m                or content_hash in pending_hashes[m
+[32m+[m[32m            ):[m
+[32m+[m[32m                skipped += 1[m
+[32m+[m[32m                continue[m
+[32m+[m[32m            new_docs.append(doc)[m
+[32m+[m[32m            new_hashes.append((url_hash, content_hash))[m
+[32m+[m[32m            pending_hashes.update((url_hash, content_hash))[m
+[32m+[m
+[32m+[m[32m        if not new_docs:[m
+[32m+[m[32m            return {"cached": 0, "skipped": skipped, "failed": 0}[m
+[32m+[m
+[32m+[m[32m        texts = [doc["text"] for doc in new_docs][m
+[32m+[m[32m        if self.embedding_model is not None:[m
+[32m+[m[32m            vectors = self.embedding_model.encode(texts, convert_to_numpy=True).astype("float32")[m
+[32m+[m[32m            faiss.normalize_L2(vectors)[m
+[32m+[m[32m        elif self.tfidf_svd_model is not None:[m
+[32m+[m[32m            tfidf = self.tfidf_svd_model["tfidf"][m
+[32m+[m[32m            svd = self.tfidf_svd_model["svd"][m
+[32m+[m[32m            vectors = sk_normalize(svd.transform(tfidf.transform(texts)).astype("float32"), norm="l2")[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            return {"cached": 0, "skipped": skipped, "failed": len(new_docs)}[m
+[32m+[m
+[32m+[m[32m        cached = 0[m
+[32m+[m[32m        failed = 0[m
+[32m+[m[32m        with self._index_lock:[m
+[32m+[m[32m            for doc, vector, (url_hash, content_hash) in zip(new_docs, vectors, new_hashes):[m
+[32m+[m[32m                start_id = self.faiss_index.ntotal[m
+[32m+[m[32m                try:[m
+[32m+[m[32m                    doc["faiss_id"] = start_id[m
+[32m+[m[32m                    self.faiss_index.add(vector.reshape(1, -1))[m
+[32m+[m[32m                    self.metadata.append(doc)[m
+[32m+[m[32m                    self._persist_cache()[m
+[32m+[m[32m                    self._ingested_hashes.update((url_hash, content_hash))[m
+[32m+[m[32m                    cached += 1[m
+[32m+[m[32m                except Exception as error:[m
+[32m+[m[32m                    log.warning("Failed to cache Tavily result [%s]: %s", start_id, error)[m
+[32m+[m[32m                    failed += 1[m
+[32m+[m[32m                    log.error("FAISS/metadata mismatch possible after failed cache persistence")[m
+[32m+[m
+[32m+[m[32m        return {"cached": cached, "skipped": skipped, "failed": failed}[m
+[32m+[m
+     def _encode_query(self, query: str) -> Optional[np.ndarray]:[m
+         """[m
+         Encodes a query string into a 384-dim vector.[m
+[36m@@ -268,19 +414,35 @@[m [mclass TeamARetrievalPipeline:[m
+                 doc = self.metadata[idx][m
+                 faiss_results.append({[m
+                     "source_id": f"faiss_{idx}",[m
+[32m+[m[32m                    "retrieval_score": float(dist),[m
+                     "source_url": doc.get("url", "http://liar-dataset.internal"),[m
+[31m-                    "title": doc.get("statement", "")[:80],[m
+[31m-                    "source_type": "faiss_dataset",[m
+[31m-                    "text_snippet": doc.get("cleaned_text") or doc.get("statement", ""),[m
+[32m+[m[32m                    "title": doc.get("title") or doc.get("statement", "")[:80],[m
+[32m+[m[32m                    "source_type": "faiss_cache" if doc.get("origin") == "tavily_cache" else "faiss_dataset",[m
+[32m+[m[32m                    "text_snippet": doc.get("text") or doc.get("cleaned_text") or doc.get("statement", ""),[m
+                     "published_date": doc.get("publish_date") or doc.get("context", ""),[m
+                     "author": doc.get("speaker", "Unknown Speaker"),[m
+[31m-                    "organization": doc.get("job_title", "Dataset Record")[m
+[32m+[m[32m                    "organization": doc.get("job_title", "Dataset Record"),[m
+[32m+[m[32m                    "origin": doc.get("origin", "liar_dataset"),[m
+[32m+[m[32m                    "label": doc.get("label"),[m
+[32m+[m[32m                    "tavily_score": doc.get("tavily_score"),[m
+[32m+[m[32m                    "rd_score": doc.get("rd_score"),[m
+[32m+[m[32m                    "cached_at": doc.get("cached_at"),[m
+                 })[m
+             return faiss_results[m
+         except Exception as e:[m
+             print(f"[TeamA Engine] FAISS search error: {e}")[m
+             return [][m
+ [m
+[32m+[m[32m    @staticmethod[m
+[32m+[m[32m    def _has_sufficient_cached_evidence(evidence: List[Dict[str, Any]]) -> bool:[m
+[32m+[m[32m        """Use a high cosine-similarity threshold before skipping a Tavily call."""[m
+[32m+[m[32m        threshold = float(os.getenv("TAVILY_CACHE_SIMILARITY_THRESHOLD", "0.75"))[m
+[32m+[m[32m        return any([m
+[32m+[m[32m            item.get("origin") == "tavily_cache"[m
+[32m+[m[32m            and float(item.get("retrieval_score", 0.0)) >= threshold[m
+[32m+[m[32m            for item in evidence[m
+[32m+[m[32m        )[m
+[32m+[m
+     def score_and_rank_evidence([m
+         self,[m
+         claim: str,[m
+[36m@@ -366,6 +528,11 @@[m [mclass TeamARetrievalPipeline:[m
+                 "credibility_source": cred_source,[m
+                 "recency_score": s4,[m
+                 "combined_reliability": combined_reliability,[m
+[32m+[m[32m                "origin": item.get("origin", "web"),[m
+[32m+[m[32m                "label": item.get("label"),[m
+[32m+[m[32m                "tavily_score": item.get("tavily_score", item.get("retrieval_score")),[m
+[32m+[m[32m                "rd_score": s3,[m
+[32m+[m[32m                "cached_at": item.get("cached_at"),[m
+                 "retrieval_rank": 0  # To be set after sorting[m
+             })[m
+ [m
+[36m@@ -413,9 +580,12 @@[m [mclass TeamARetrievalPipeline:[m
+         normalized_claim = claim.strip()[m
+         sub_claims = self.generate_sub_claims(normalized_claim)[m
+ [m
+[31m-        # 1. Retrieve raw evidence[m
+[31m-        raw_web_evidence = self.retrieve_live_web(normalized_claim, max_results=top_k * 2)[m
+[32m+[m[32m        # 1. Search FAISS first so a strong cached result can avoid Tavily.[m
+         raw_faiss_evidence = self.retrieve_faiss(normalized_claim, top_n=top_k * 2)[m
+[32m+[m[32m        if self._has_sufficient_cached_evidence(raw_faiss_evidence):[m
+[32m+[m[32m            raw_web_evidence = [][m
+[32m+[m[32m        else:[m
+[32m+[m[32m            raw_web_evidence = self.retrieve_live_web(normalized_claim, max_results=top_k * 2)[m
+ [m
+         raw_all = raw_web_evidence + raw_faiss_evidence[m
+ [m
+[1mdiff --git a/bot/main.py b/bot/main.py[m
+[1mindex 2f8ef83..52a492a 100644[m
+[1m--- a/bot/main.py[m
+[1m+++ b/bot/main.py[m
+[36m@@ -2,8 +2,12 @@[m [mfrom __future__ import annotations[m
+ [m
+ import os[m
+ [m
+[32m+[m[32mfrom backend.core.config import load_settings, validate_runtime_config[m
+ from telegram.ext import Application, CommandHandler, MessageHandler, filters[m
+ [m
+[32m+[m[32msettings = load_settings()[m
+[32m+[m[32mvalidate_runtime_config(settings, mode="bot")[m
+[32m+[m
+ from bot.handlers import start, verify_photo, verify_text[m
+ [m
+ [m
+[1mdiff --git a/config/.env.example b/config/.env.example[m
+[1mindex 7133304..6e73b00 100644[m
+[1m--- a/config/.env.example[m
+[1m+++ b/config/.env.example[m
+[36m@@ -1,5 +1,5 @@[m
+ # Copy to a non-committed environment file and set real values locally.[m
+[31m-TAVILY_API_KEY=[m
+[32m+[m[32mTAVILY_API_KEY=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[m
+ OLLAMA_BASE_URL=http://localhost:11434[m
+ OLLAMA_MODEL=deepseek-r1:7b[m
+ FAISS_INDEX_PATH=indexes/truthlens.faiss[m

@@ -24,8 +24,12 @@ import sys
 import math
 import time
 import pickle
+import hashlib
+import logging
+import threading
+import tempfile
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 # Optional dependency fallbacks
@@ -67,6 +71,32 @@ if BASE_DIR not in sys.path:
 
 from backend.rag.domain_credibility import HybridDomainCredibility
 from backend.rag.web_retriever import HybridScraper
+
+log = logging.getLogger(__name__)
+
+
+def tavily_results_to_docs(tavily_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert Tavily or normalized web results into cache metadata documents."""
+    docs = []
+    for result in tavily_results:
+        content = result.get("content") or result.get("text_snippet") or result.get("snippet", "")
+        url = result.get("url") or result.get("source_url", "")
+        if not content or not str(content).strip() or not url:
+            continue
+
+        docs.append({
+            "text": str(content).strip(),
+            "cleaned_text": str(content).strip(),
+            "url": url,
+            "title": result.get("title", ""),
+            "statement": result.get("title", ""),
+            "origin": "tavily_cache",
+            "label": "unverified",
+            "tavily_score": float(result.get("score", result.get("retrieval_score", 0.0)) or 0.0),
+            "rd_score": None,
+            "cached_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return docs
 
 # ================================================================
 # RECENCY SCORING ENGINE
@@ -179,6 +209,10 @@ class TeamARetrievalPipeline:
         self.faiss_index = None
         self.metadata = []
         self.bm25_index = None
+        self.index_path = index_path
+        self.metadata_path = metadata_path
+        self._index_lock = threading.RLock()
+        self._ingested_hashes = set()
 
         if HAS_FAISS and index_path and metadata_path and os.path.exists(index_path) and os.path.exists(metadata_path):
             try:
@@ -188,6 +222,13 @@ class TeamARetrievalPipeline:
                 print(f"[TeamA Engine] Loading FAISS metadata: {metadata_path}")
                 with open(metadata_path, "rb") as f:
                     self.metadata = pickle.load(f)
+
+                for doc in self.metadata:
+                    if doc.get("url"):
+                        self._ingested_hashes.add(self._content_hash(doc["url"]))
+                    text = doc.get("text") or doc.get("cleaned_text") or doc.get("statement")
+                    if text:
+                        self._ingested_hashes.add(self._content_hash(text))
 
                 if HAS_BM25:
                     tokenized_corpus = []
@@ -223,10 +264,115 @@ class TeamARetrievalPipeline:
             if not self.scraper.api_key:
                 print("[TeamA Engine] Tavily API key not set. Skipping live web retrieval.")
                 return []
-            return self.scraper.search_and_extract(query=query, max_results=max_results)
+            results = self.scraper.search_and_extract(query=query, max_results=max_results)
+            if results:
+                try:
+                    summary = self.cache_tavily_results(results)
+                    log.info(
+                        "Tavily cache: cached=%s skipped=%s failed=%s",
+                        summary["cached"], summary["skipped"], summary["failed"],
+                    )
+                except Exception as e:
+                    log.warning("Tavily cache failed (non-fatal): %s", e)
+            return results
         except Exception as e:
             print(f"[TeamA Engine] Live web retrieval error: {e}")
             return []
+
+    @staticmethod
+    def _content_hash(value: str) -> str:
+        return hashlib.md5(value.encode("utf-8")).hexdigest()
+
+    def _persist_cache(self) -> None:
+        """Persist the index and metadata through same-directory temporary files."""
+        if not self.index_path or not self.metadata_path:
+            raise ValueError("FAISS index and metadata paths are required for caching")
+
+        index_dir = os.path.dirname(os.path.abspath(self.index_path))
+        metadata_dir = os.path.dirname(os.path.abspath(self.metadata_path))
+        os.makedirs(index_dir, exist_ok=True)
+        os.makedirs(metadata_dir, exist_ok=True)
+
+        index_tmp = None
+        metadata_tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=index_dir, suffix=".faiss.tmp", delete=False) as file:
+                index_tmp = file.name
+            with tempfile.NamedTemporaryFile(dir=metadata_dir, suffix=".pkl.tmp", delete=False) as file:
+                metadata_tmp = file.name
+
+            faiss.write_index(self.faiss_index, index_tmp)
+            with open(metadata_tmp, "wb") as file:
+                pickle.dump(self.metadata, file)
+            os.replace(index_tmp, self.index_path)
+            os.replace(metadata_tmp, self.metadata_path)
+        finally:
+            for temp_path in (index_tmp, metadata_tmp):
+                if temp_path and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+
+    def cache_tavily_results(self, tavily_results: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Best-effort cache of normalized Tavily evidence into the loaded FAISS index."""
+        if not tavily_results:
+            return {"cached": 0, "skipped": 0, "failed": 0}
+
+        docs = tavily_results_to_docs(tavily_results)
+        if not docs:
+            return {"cached": 0, "skipped": len(tavily_results), "failed": 0}
+        if self.faiss_index is None:
+            return {"cached": 0, "skipped": len(docs), "failed": len(docs)}
+
+        new_docs = []
+        new_hashes = []
+        pending_hashes = set()
+        skipped = len(tavily_results) - len(docs)
+        for doc in docs:
+            url_hash = self._content_hash(doc["url"])
+            content_hash = self._content_hash(doc["text"])
+            if (
+                url_hash in self._ingested_hashes
+                or content_hash in self._ingested_hashes
+                or url_hash in pending_hashes
+                or content_hash in pending_hashes
+            ):
+                skipped += 1
+                continue
+            new_docs.append(doc)
+            new_hashes.append((url_hash, content_hash))
+            pending_hashes.update((url_hash, content_hash))
+
+        if not new_docs:
+            return {"cached": 0, "skipped": skipped, "failed": 0}
+
+        texts = [doc["text"] for doc in new_docs]
+        if self.embedding_model is not None:
+            vectors = self.embedding_model.encode(texts, convert_to_numpy=True).astype("float32")
+            faiss.normalize_L2(vectors)
+        elif self.tfidf_svd_model is not None:
+            tfidf = self.tfidf_svd_model["tfidf"]
+            svd = self.tfidf_svd_model["svd"]
+            vectors = sk_normalize(svd.transform(tfidf.transform(texts)).astype("float32"), norm="l2")
+        else:
+            return {"cached": 0, "skipped": skipped, "failed": len(new_docs)}
+
+        cached = 0
+        failed = 0
+        with self._index_lock:
+            for doc, vector, (url_hash, content_hash) in zip(new_docs, vectors, new_hashes):
+                start_id = self.faiss_index.ntotal
+                try:
+                    doc["faiss_id"] = start_id
+                    self.faiss_index.add(vector.reshape(1, -1))
+                    self.metadata.append(doc)
+                    self._persist_cache()
+                    self._ingested_hashes.update((url_hash, content_hash))
+                    cached += 1
+                except Exception as error:
+                    log.warning("Failed to cache Tavily result [%s]: %s", start_id, error)
+                    failed += 1
+                    log.error("FAISS/metadata mismatch possible after failed cache persistence")
+
+        return {"cached": cached, "skipped": skipped, "failed": failed}
 
     def _encode_query(self, query: str) -> Optional[np.ndarray]:
         """
@@ -268,18 +414,34 @@ class TeamARetrievalPipeline:
                 doc = self.metadata[idx]
                 faiss_results.append({
                     "source_id": f"faiss_{idx}",
+                    "retrieval_score": float(dist),
                     "source_url": doc.get("url", "http://liar-dataset.internal"),
-                    "title": doc.get("statement", "")[:80],
-                    "source_type": "faiss_dataset",
-                    "text_snippet": doc.get("cleaned_text") or doc.get("statement", ""),
+                    "title": doc.get("title") or doc.get("statement", "")[:80],
+                    "source_type": "faiss_cache" if doc.get("origin") == "tavily_cache" else "faiss_dataset",
+                    "text_snippet": doc.get("text") or doc.get("cleaned_text") or doc.get("statement", ""),
                     "published_date": doc.get("publish_date") or doc.get("context", ""),
                     "author": doc.get("speaker", "Unknown Speaker"),
-                    "organization": doc.get("job_title", "Dataset Record")
+                    "organization": doc.get("job_title", "Dataset Record"),
+                    "origin": doc.get("origin", "liar_dataset"),
+                    "label": doc.get("label"),
+                    "tavily_score": doc.get("tavily_score"),
+                    "rd_score": doc.get("rd_score"),
+                    "cached_at": doc.get("cached_at"),
                 })
             return faiss_results
         except Exception as e:
             print(f"[TeamA Engine] FAISS search error: {e}")
             return []
+
+    @staticmethod
+    def _has_sufficient_cached_evidence(evidence: List[Dict[str, Any]]) -> bool:
+        """Use a high cosine-similarity threshold before skipping a Tavily call."""
+        threshold = float(os.getenv("TAVILY_CACHE_SIMILARITY_THRESHOLD", "0.75"))
+        return any(
+            item.get("origin") == "tavily_cache"
+            and float(item.get("retrieval_score", 0.0)) >= threshold
+            for item in evidence
+        )
 
     def score_and_rank_evidence(
         self,
@@ -366,6 +528,11 @@ class TeamARetrievalPipeline:
                 "credibility_source": cred_source,
                 "recency_score": s4,
                 "combined_reliability": combined_reliability,
+                "origin": item.get("origin", "web"),
+                "label": item.get("label"),
+                "tavily_score": item.get("tavily_score", item.get("retrieval_score")),
+                "rd_score": s3,
+                "cached_at": item.get("cached_at"),
                 "retrieval_rank": 0  # To be set after sorting
             })
 
@@ -413,9 +580,12 @@ class TeamARetrievalPipeline:
         normalized_claim = claim.strip()
         sub_claims = self.generate_sub_claims(normalized_claim)
 
-        # 1. Retrieve raw evidence
-        raw_web_evidence = self.retrieve_live_web(normalized_claim, max_results=top_k * 2)
+        # 1. Search FAISS first so a strong cached result can avoid Tavily.
         raw_faiss_evidence = self.retrieve_faiss(normalized_claim, top_n=top_k * 2)
+        if self._has_sufficient_cached_evidence(raw_faiss_evidence):
+            raw_web_evidence = []
+        else:
+            raw_web_evidence = self.retrieve_live_web(normalized_claim, max_results=top_k * 2)
 
         raw_all = raw_web_evidence + raw_faiss_evidence
 

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import os
 
+from backend.core.config import load_settings, validate_runtime_config
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
+
+settings = load_settings()
+validate_runtime_config(settings, mode="bot")
 
 from bot.handlers import start, verify_photo, verify_text
 
