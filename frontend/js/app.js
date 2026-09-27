@@ -24,7 +24,7 @@ function initFreshState() {
     setClaimBlockCentered(true);
     resetPipelineSteps();
     setTerminalState('default');
-    setTargetClaim(DEFAULT_CLAIM, true);
+    setTargetClaim('No claim submitted yet.', true);
 }
 
 function initApp() {
