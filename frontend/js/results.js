@@ -38,8 +38,7 @@ function renderVerdictCard() {
         renderLivePatterns(result.patterns_detected);
         return;
     }
-    const confStr = (typeof REPORT_META !== 'undefined' && REPORT_META.confidence) ? REPORT_META.confidence : '0%';
-    const confNum = parseInt(confStr, 10) || 0;
+    const confNum = 0;
 
     const radial = document.getElementById('results-confidence-radial');
     const valEl = document.getElementById('results-confidence-val');
