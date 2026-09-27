@@ -95,6 +95,7 @@ class VerificationService:
             "justification": result["justification"],
             "recommendation": result["recommendation"],
             "persona_insights": result.get("persona_insights", {}),
+            "patterns_detected": result.get("patterns_detected", []),
             "stance_breakdown": result.get("stance_breakdown", {}),
             "coverage_score": result.get("coverage_score", 0),
             "rounds_executed": result.get("rounds_executed", 0),
