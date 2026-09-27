@@ -418,7 +418,7 @@ async function simulateCheckingProcess(verificationRequest) {
         renderDynamicProcessingLog(result);
         setTerminalState('complete');
         setCurrentResult(result);
-        addToHistory(result.original_claim);
+        addToHistory(result.original_claim, result.verdict);
         switchView('results');
     } catch (error) {
         clearCheckingTimers();
