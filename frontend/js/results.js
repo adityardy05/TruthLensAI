@@ -118,7 +118,14 @@ function renderLivePatterns(patterns) {
 function renderLiveEvidence(evidence) {
     const cards = document.getElementById('source-cards');
     if (!cards) return;
-    cards.innerHTML = evidence.map((item, index) => {
+    const items = Array.isArray(evidence) ? evidence : [];
+    const support = items.filter(item => String(item.stance || '').toUpperCase() === 'SUPPORT').length;
+    const contradict = items.filter(item => String(item.stance || '').toUpperCase() === 'CONTRADICT').length;
+    const supportEl = document.getElementById('source-supporting');
+    const contradictEl = document.getElementById('source-contradicting');
+    if (supportEl) supportEl.textContent = String(support);
+    if (contradictEl) contradictEl.textContent = String(contradict);
+    cards.innerHTML = items.map((item, index) => {
         const id = `live-source-${index}`;
         const score = Math.round((item.combined_reliability || 0) * 100);
         return `<div class="border border-glass-stroke rounded-xl overflow-hidden"><button class="w-full flex justify-between items-center gap-3 p-4 bg-surface text-left" onclick="toggleSource('${id}')"><span class="font-label-md text-primary font-bold">${escapeHtml(item.source_domain)}</span><span class="font-label-md text-text-muted">${score}%</span><span class="material-symbols-outlined text-sm" id="${id}-icon">expand_more</span></button><div class="hidden p-4 bg-surface-container-low border-t border-glass-stroke space-y-2" id="${id}-body"><p class="font-body-md text-sm text-on-surface-variant">${escapeHtml(item.content)}</p><a class="text-primary hover:underline text-sm" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Open source</a></div></div>`;
