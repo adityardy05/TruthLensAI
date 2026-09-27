@@ -17,10 +17,10 @@
       How It Works nav item opens, and it is also the live screen
       the pipeline runs on.
 
-   The verification itself is simulated with setTimeout. There is no
-   FastAPI / LangGraph / Ollama backend connected. Everything a real
-   pipeline would drive goes through the small functions below, so
-   swapping timers for API calls later is a local change.
+   The backend verification request is real. Timers only control the
+   visual hand-off between pipeline stages while the synchronous API
+   request runs. Once the backend responds, the terminal log and
+   result panels are populated from that real response.
    ============================================================ */
 
 /* Every simulated stage timer, so a new claim or a reset can cancel
@@ -207,16 +207,70 @@ function setTerminalState(state) {
     const evidence = document.getElementById('terminal-evidence-line');
     const judge = document.getElementById('terminal-judge-line');
     const cursor = document.getElementById('terminal-cursor-line');
+    const placeholder = document.getElementById('terminal-placeholder');
 
-    const showEvidence = (state === 'judging' || state === 'finalizing' || state === 'complete');
-    const showJudge = (state === 'finalizing' || state === 'complete');
-    const line = (state === 'default') ? TERMINAL_LINES.awaiting
-        : (state === 'judging') ? TERMINAL_LINES.judging
-            : TERMINAL_LINES.finalizing;
+    if (placeholder) placeholder.style.display = state === 'default' ? 'block' : 'none';
+    if (evidence) evidence.style.display = state === 'judging' || state === 'finalizing' || state === 'complete' ? 'block' : 'none';
+    if (judge) judge.style.display = state === 'finalizing' || state === 'complete' ? 'block' : 'none';
 
-    if (evidence) evidence.style.display = showEvidence ? 'block' : 'none';
-    if (judge) judge.style.display = showJudge ? 'block' : 'none';
-    if (cursor) cursor.innerHTML = line + '<span class="terminal-cursor"></span>';
+    const line = state === 'default'
+        ? 'Waiting for the verification backend...'
+        : state === 'judging'
+            ? 'Backend evidence and reviewer analysis are being evaluated...'
+            : state === 'finalizing'
+                ? 'Final supervisor is synthesizing the judgment...'
+                : 'Verification completed.';
+    if (cursor) cursor.innerHTML = '&gt; ' + line + '<span class="terminal-cursor"></span>';
+}
+
+function renderDynamicProcessingLog(result) {
+    const terminal = document.getElementById('terminal-content');
+    if (!terminal) return;
+    const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+    const subClaims = Array.isArray(result.sub_claims) ? result.sub_claims : [];
+    const meta = result.retrieval_metadata || {};
+    const insights = result.persona_insights || {};
+
+    const lines = [
+        '<div class="text-white/60">TruthLensAI verification run started.</div>',
+        '<div class="text-white/60">Claim received by the verification backend.</div>',
+        '<div class="mt-2"><span class="text-secondary-fixed">[DECOMPOSE]</span> ' +
+            escapeHtml(String(subClaims.length)) + ' sub-claim(s) returned.</div>',
+    ];
+
+    subClaims.slice(0, 5).forEach((claim, index) => {
+        lines.push('<div>  ├─ Sub ' + (index + 1) + ': "' + escapeHtml(String(claim)) + '"</div>');
+    });
+
+    lines.push(
+        '<div class="mt-2"><span class="text-tertiary-fixed-dim">[RETRIEVAL]</span> ' +
+        escapeHtml(String(meta.num_live_web_sources || 0)) + ' live web source(s), ' +
+        escapeHtml(String(meta.num_sources_kept || evidence.length)) + ' retained evidence item(s).</div>'
+    );
+
+    const domains = [...new Set(evidence.map(item => item.source_domain).filter(Boolean))].slice(0, 5);
+    if (domains.length) {
+        lines.push('<div><span class="text-tertiary-fixed-dim">[SOURCES]</span> ' + domains.map(escapeHtml).join(', ') + '</div>');
+    }
+
+    Object.entries(insights).forEach(([persona, insight]) => {
+        if (String(insight || '').trim()) {
+            lines.push(
+                '<div class="mt-2"><span class="text-secondary-fixed-dim">[' +
+                escapeHtml(persona.replace(/_/g, ' ').toUpperCase()) +
+                ']</span> ' + escapeHtml(String(insight)) + '</div>'
+            );
+        }
+    });
+
+    lines.push(
+        '<div class="mt-2 text-white/80"><span class="text-[#c2b9fd]">[JUDGE]</span> ' +
+        'Verdict: ' + escapeHtml(String(result.verdict || 'UNVERIFIABLE')) +
+        ' · confidence: ' + escapeHtml(String(Math.round(Number(result.confidence) || 0))) + '%</div>'
+    );
+
+    terminal.innerHTML = lines.join('') +
+        '<div class="mt-1 flex items-center text-[#00dbe9]" id="terminal-cursor-line">&gt; Verification completed<span class="terminal-cursor"></span></div>';
 }
 
 function setTargetClaim(text, isExample) {
@@ -247,7 +301,7 @@ const resetPipeline = resetCheckingPipeline;
    the run's own timers own it. */
 function renderVerificationPresentation() {
     if (!hasCurrentClaim()) {
-        setTargetClaim(DEFAULT_CLAIM, true);
+        setTargetClaim('No claim submitted yet.', true);
         resetPipelineSteps();
         setTerminalState('default');
         return;
@@ -361,6 +415,7 @@ async function simulateCheckingProcess(verificationRequest) {
     try {
         const result = await verificationRequest;
         setPipelineAllComplete();
+        renderDynamicProcessingLog(result);
         setTerminalState('complete');
         setCurrentResult(result);
         addToHistory(result.original_claim);
