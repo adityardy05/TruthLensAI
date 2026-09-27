@@ -262,6 +262,8 @@ def run_graph(
 
         "persona_insights": {},
 
+        "patterns_detected": [],
+
         "coverage_score": 0.0,
 
         "recommendation": "",
