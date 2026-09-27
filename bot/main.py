@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from bot.handlers import start, verify_photo, verify_text
+
+load_dotenv()
 
 
 def main() -> None:

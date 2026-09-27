@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 from flask import Flask, send_from_directory
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+load_dotenv()
 
 from backend.api.verification import api
 from backend.core.config import PROJECT_ROOT, load_settings

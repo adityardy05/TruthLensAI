@@ -360,6 +360,7 @@ class TeamARetrievalPipeline:
                 "organization": org,
                 "content": item.get("text_snippet", ""),
                 "url": url,
+                    "source_type": item.get("source_type", "unknown"),
                 "bm25_score": s1,
                 "cosine_score": s2,
                 "domain_credibility": s3,
@@ -451,6 +452,9 @@ class TeamARetrievalPipeline:
                 "retrieval_time_ms": elapsed_ms,
                 "num_sources_total": len(unique_raw),
                 "num_sources_kept": len(scored_evidence),
+                "num_live_web_sources": sum(
+                    1 for item in scored_evidence if item.get("source_type") == "web"
+                ),
                 "top_source_domain": top_domain
             }
         }

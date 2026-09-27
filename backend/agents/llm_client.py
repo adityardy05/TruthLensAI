@@ -3,9 +3,26 @@ import time
 import json
 import requests
 from functools import wraps
+from dotenv import load_dotenv
+
+load_dotenv()
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 MODEL_NAME      = os.getenv("OLLAMA_MODEL",    "deepseek-r1:7b")
+USE_GROQ        = os.getenv("USE_GROQ", "false").lower() == "true"
+GROQ_MODEL      = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+if USE_GROQ:
+    from langchain_groq import ChatGroq
+
+    _groq_llm = ChatGroq(
+        model=GROQ_MODEL,
+        api_key=os.getenv("GROQ_API_KEY"),
+        temperature=0.6,
+        max_tokens=8192,
+    )
+else:
+    _groq_llm = None
 
 
 def with_retry(max_attempts=3, delay=2.0):
@@ -33,6 +50,10 @@ def with_retry(max_attempts=3, delay=2.0):
 
 @with_retry(max_attempts=3, delay=2.0)
 def call_deepseek(prompt: str, timeout: int = 120) -> str:
+    if USE_GROQ:
+        response = _groq_llm.invoke(prompt)
+        return response.content.strip()
+
     response = requests.post(
         f"{OLLAMA_BASE_URL}/api/generate",
         json={
