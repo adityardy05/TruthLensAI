@@ -1,7 +1,7 @@
 """
 confidence_gate.py — Team B · Node 4
 Calculates confidence after Round 1.
-Routes to Round 2 if confidence < 0.85, else goes to final_judgment.
+Routes to Round 2 if confidence < 0.80, else goes to final_judgment.
 
 LLM calls: 0  ← pure math, no LLM
 """
@@ -65,44 +65,59 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
     evidence = state.get("evidence", [])
     avg_quality = state.get("avg_source_quality", 0.5)
 
-    # ── Signal 1: Stance consensus ───────────────────────────────
+    # ── Signal 1: Round 1 persona stance consensus ─────────────
 
-    # Count stances from evidence if Team A labeled them
-    stances = [ev.get("stance", None) for ev in evidence]
-    stances = [s for s in stances if s is not None]
+    # Round 1 now stores explicit stance labels for each persona.
+    # Evidence-level stance labels remain a backward-compatible fallback.
+    persona_stances = [
+        str(entry.get("stance", "")).upper().strip()
+        for entry in memory
+        if entry.get("stance")
+    ]
 
-    if stances:
-        support = stances.count("SUPPORT")
-        contradict = stances.count("CONTRADICT")
-        neutral = stances.count("NEUTRAL")
-
-        total = len(stances)
-
-        dominant = max(
-            support,
-            contradict,
-            neutral
-        )
-
-        stance_consensus = (
-            dominant / total
-            if total > 0
-            else 0.5
-        )
-
+    if persona_stances:
+        counts = {
+            stance: persona_stances.count(stance)
+            for stance in ("SUPPORT", "CONTRADICT", "NEUTRAL", "UNCERTAIN")
+        }
+        stance_consensus = max(counts.values()) / len(persona_stances)
     else:
-        # No stance labels → derive from memory answers
-        stance_consensus = _derive_consensus_from_memory(memory)
+        evidence_stances = [
+            str(ev.get("stance", "")).upper().strip()
+            for ev in evidence
+            if ev.get("stance")
+        ]
+        if evidence_stances:
+            counts = {
+                stance: evidence_stances.count(stance)
+                for stance in ("SUPPORT", "CONTRADICT", "NEUTRAL", "UNCERTAIN")
+            }
+            stance_consensus = max(counts.values()) / len(evidence_stances)
+        else:
+            stance_consensus = _derive_consensus_from_memory(memory)
 
     # ── Signal 2: Avg source quality ─────────────────────────────
 
     # Already computed by Team A credibility_check
     # avg_quality is read directly from state.
 
-    # ── Signal 3: Answer certainty ───────────────────────────────
+    # ── Signal 3: Persona answer certainty ─────────────────────
 
-    if memory:
+    structured_confidences = []
+    for entry in memory:
+        try:
+            if entry.get("stance") and entry.get("confidence") is not None:
+                structured_confidences.append(
+                    max(0.0, min(1.0, float(entry.get("confidence"))))
+                )
+        except (TypeError, ValueError):
+            continue
 
+    if structured_confidences:
+        answer_certainty = (
+            sum(structured_confidences) / len(structured_confidences)
+        )
+    elif memory:
         uncertain_count = sum(
             1
             for entry in memory
@@ -111,14 +126,8 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
                 for phrase in UNCERTAIN_PHRASES
             )
         )
-
-        answer_certainty = (
-            1.0 -
-            (uncertain_count / len(memory))
-        )
-
+        answer_certainty = 1.0 - (uncertain_count / len(memory))
     else:
-        # No memory = uncertain by default
         answer_certainty = 0.5
 
     # ── Combined confidence ──────────────────────────────────────
@@ -133,8 +142,8 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
 
     # ── Routing decision ────────────────────────────────────────
 
-    # >= 0.85 → final judgment
-    # <  0.85 → Round 2
+    # >= 0.80 → final judgment
+    # <  0.80 → Round 2
     go_to_round2 = confidence < CONFIDENCE_THRESHOLD
 
     print(

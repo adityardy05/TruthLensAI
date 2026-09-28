@@ -182,6 +182,11 @@ def generate_structured_answer(
     except ModuleNotFoundError:
         from backend.agents.llm_client import call_deepseek_json
 
+    from backend.agents.team_b.personas.fact_checker import (
+        _format_evidence,
+        _format_memory
+    )
+
     evidence_text = _format_evidence(evidence)
     memory_text = _format_memory(memory)
 
@@ -255,6 +260,81 @@ def generate_structured_answer(
         "reasoning": reasoning,
     }
 
+
+
+ROUND1_STRUCTURED_PROMPT = """You are performing Round 1 evidence-based verification.
+
+Claim:
+"{claim}"
+
+Question:
+"{question}"
+
+Retrieved Evidence:
+{evidence_text}
+
+Previous Q&A Context:
+{memory_text}
+
+Return ONLY valid JSON:
+{{
+    "stance": "SUPPORT | CONTRADICT | NEUTRAL | UNCERTAIN",
+    "confidence": 0.0,
+    "reasoning": "2-4 concise sentences"
+}}
+
+Rules:
+- SUPPORT = the evidence supports the claim.
+- CONTRADICT = the evidence contradicts the claim.
+- NEUTRAL = relevant evidence but no clear support/contradiction.
+- UNCERTAIN = insufficient or conflicting evidence.
+- confidence must be between 0.0 and 1.0.
+- Use ONLY the supplied evidence; do not invent facts.
+"""
+
+
+def generate_round1_structured_answer(
+    claim: str,
+    question: str,
+    evidence: List[Dict],
+    memory: List[Dict]
+) -> Dict:
+    """Return explicit Round 1 stance, confidence and reasoning."""
+    try:
+        from backend.agents.llm_client import call_deepseek_json
+    except ModuleNotFoundError:
+        from backend.agents.llm_client import call_deepseek_json
+
+    evidence_text = _format_evidence(evidence)
+    memory_text = _format_memory(memory) or "No previous context."
+    prompt = ROUND1_STRUCTURED_PROMPT.format(
+        claim=claim,
+        question=question,
+        evidence_text=evidence_text,
+        memory_text=memory_text
+    )
+    response = call_deepseek_json(prompt)
+
+    allowed = {"SUPPORT", "CONTRADICT", "NEUTRAL", "UNCERTAIN"}
+    stance = str(response.get("stance", "UNCERTAIN")).upper().strip()
+    if stance not in allowed:
+        stance = "UNCERTAIN"
+
+    try:
+        confidence = float(response.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
+
+    reasoning = str(response.get("reasoning", "")).strip()
+    if not reasoning:
+        reasoning = "No structured reasoning was returned."
+
+    return {
+        "stance": stance,
+        "confidence": round(confidence, 3),
+        "reasoning": reasoning
+    }
 
 def extract_insight(
     question: str,
