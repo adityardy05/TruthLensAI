@@ -13,9 +13,9 @@ Implements Team A's Module A RAG Retrieval and 4-Factor Evidence Scoring:
         s₃ = Hybrid Domain Credibility (Hardlist → MBFC cache → Dynamic fallback)
         s₄ = Recency Score (<30 days = 1.0, <1 yr = 0.6, >5 yrs = 0.1)
 
-Combines:
-    - Live Web Evidence via Tavily Search API + Trafilatura fallback
+Current runtime retrieval:
     - FAISS Vector DB search over historical claims database
+    - Tavily live retrieval infrastructure retained but disabled in process_claim
 ================================================================
 """
 
@@ -621,7 +621,8 @@ class TeamARetrievalPipeline:
                 "retrieval_time_ms": elapsed_ms,
                 "num_sources_total": len(unique_raw),
                 "num_sources_kept": len(scored_evidence),
-                "num_live_web_sources": 0,               "top_source_domain": top_domain
+                "num_live_web_sources": 0,
+                "top_source_domain": top_domain
             }
         }
 
