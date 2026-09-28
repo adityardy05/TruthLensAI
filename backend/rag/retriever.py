@@ -15,7 +15,8 @@ Implements Team A's Module A RAG Retrieval and 4-Factor Evidence Scoring:
 
 Current runtime retrieval:
     - FAISS Vector DB search over historical claims database
-    - Tavily live retrieval infrastructure retained but disabled in process_claim
+    - Tavily live retrieval as a fallback when the best FAISS similarity is below the cache threshold
+    - Newly retrieved Tavily evidence is cached back into the FAISS index
 ================================================================
 """
 
@@ -477,14 +478,27 @@ class TeamARetrievalPipeline:
             return []
 
     @staticmethod
-    def _has_sufficient_cached_evidence(evidence: List[Dict[str, Any]]) -> bool:
-        """Use a high cosine-similarity threshold before skipping a Tavily call."""
-        threshold = float(os.getenv("TAVILY_CACHE_SIMILARITY_THRESHOLD", "0.75"))
-        return any(
-            item.get("origin") == "tavily_cache"
-            and float(item.get("retrieval_score", 0.0)) >= threshold
-            for item in evidence
+    def _has_sufficient_faiss_evidence(
+        evidence: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Decide whether FAISS evidence is semantically similar enough to
+        avoid a live Tavily lookup.
+
+        The decision is based ONLY on the best FAISS similarity score.
+        Whether a document came from the original dataset or from the
+        Tavily cache does not affect this decision.
+        """
+        threshold = float(
+            os.getenv("TAVILY_CACHE_SIMILARITY_THRESHOLD", "0.75")
         )
+        return max(
+            (
+                float(item.get("retrieval_score", 0.0) or 0.0)
+                for item in evidence
+            ),
+            default=0.0,
+        ) >= threshold
 
     def score_and_rank_evidence(
         self,
@@ -615,22 +629,41 @@ class TeamARetrievalPipeline:
         """
         Executes full Module A pipeline:
           1. Sub-claim decomposition
-          2. FAISS-only evidence retrieval (live Tavily disabled)
-          3. 4-factor scoring R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
-          4. Adheres strictly to Module A -> Module B Inter-Team Data Contract.
+          2. FAISS retrieval
+          3. Use the best FAISS similarity to decide whether Tavily is needed
+          4. If best similarity < 0.75, retrieve fresh Tavily evidence;
+             retrieve_live_web() caches those results into FAISS
+          5. 4-factor scoring R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
+          6. Adheres strictly to Module A -> Module B Inter-Team Data Contract.
+
+        Important: the 0.75 FAISS similarity threshold only controls the
+        Tavily trigger. The R(d) >= 0.70 threshold used elsewhere in the
+        pipeline remains a separate evidence-quality/routing decision.
         """
         start_time = time.time()
 
         normalized_claim = claim.strip()
         sub_claims = self.generate_sub_claims(normalized_claim)
 
-        # 1. FAISS-only retrieval.
-        # Tavily live retrieval is disabled in this runtime mode.
+        # 1. Search the FAISS index first.
         raw_faiss_evidence = self.retrieve_faiss(
             normalized_claim,
             top_n=top_k * 2
         )
-        raw_all = raw_faiss_evidence
+
+        # 2. Trigger Tavily only when the best FAISS similarity is below
+        #    the dedicated retrieval threshold. This intentionally does
+        #    not inspect the evidence origin.
+        raw_web_evidence = []
+        if not self._has_sufficient_faiss_evidence(raw_faiss_evidence):
+            raw_web_evidence = self.retrieve_live_web(
+                normalized_claim,
+                max_results=top_k * 2
+            )
+
+        # retrieve_live_web() already caches successful Tavily results into
+        # FAISS. Keep both fresh web results and FAISS results for scoring.
+        raw_all = raw_faiss_evidence + raw_web_evidence
 
         # Deduplicate evidence by content/URL
         seen_urls = set()
@@ -664,14 +697,11 @@ class TeamARetrievalPipeline:
                 "retrieval_time_ms": elapsed_ms,
                 "num_sources_total": len(unique_raw),
                 "num_sources_kept": len(scored_evidence),
-<<<<<<< HEAD
                 "num_live_web_sources": sum(
-                    1 for item in scored_evidence
-                    if item.get("source_type") == "web" or item.get("origin") == "tavily_cache"
+                    1
+                    for item in scored_evidence
+                    if item.get("source_type") == "web"
                 ),
-=======
-                "num_live_web_sources": 0,
->>>>>>> 538800bb7b557bc0aec72e337f2eced0d99dafd5
                 "top_source_domain": top_domain
             }
         }
