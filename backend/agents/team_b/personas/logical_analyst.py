@@ -303,6 +303,11 @@ def generate_round1_structured_answer(
     except ModuleNotFoundError:
         from backend.agents.llm_client import call_deepseek_json
 
+    from backend.agents.team_b.personas.fact_checker import (
+        _format_evidence,
+        _format_memory
+    )
+
     evidence_text = _format_evidence(evidence)
     memory_text = _format_memory(memory) or "No previous context."
     prompt = ROUND1_STRUCTURED_PROMPT.format(
