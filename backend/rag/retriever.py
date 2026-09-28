@@ -674,15 +674,16 @@ class TeamARetrievalPipeline:
                 seen_urls.add(u)
                 unique_raw.append(item)
 
-        # 2. Apply 4-Factor R(d) Scoring & Ranking
+        # 3. Apply 4-Factor R(d) Scoring & Ranking
         scored_evidence = self.score_and_rank_evidence(
             claim=normalized_claim,
             raw_evidence=unique_raw,
             top_k=top_k
         )
 
-        # Indexes are immutable while the service is running.  Cache and index
-        # maintenance are deliberately offline scripts, not request side effects.
+        # Tavily results are cached into FAISS by retrieve_live_web() before
+        # returning. Therefore a later request can reuse the newly indexed
+        # evidence without another Tavily call when its similarity is >= 0.75.
         elapsed_ms = int((time.time() - start_time) * 1000)
         top_domain = scored_evidence[0]["source_domain"] if scored_evidence else "N/A"
 
