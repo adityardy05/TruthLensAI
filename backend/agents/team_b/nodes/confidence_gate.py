@@ -142,8 +142,8 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
 
     # ── Routing decision ────────────────────────────────────────
 
-    # >= 0.85 → final judgment
-    # <  0.85 → Round 2
+    # >= 0.80 → final judgment
+    # <  0.80 → Round 2
     go_to_round2 = confidence < CONFIDENCE_THRESHOLD
 
     print(
