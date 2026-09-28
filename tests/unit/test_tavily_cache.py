@@ -59,3 +59,23 @@ def test_cache_deduplicates_by_url_and_content(mock_persist):
     assert len(pipeline.metadata) == 2
     assert pipeline.metadata[-1]["origin"] == "tavily_cache"
     mock_persist.assert_called_once()
+
+
+@patch("backend.rag.retriever.faiss", SimpleNamespace(normalize_L2=lambda vectors: None))
+@patch.object(TeamARetrievalPipeline, "_persist_cache")
+def test_cached_query_skips_live_web_search(mock_persist):
+    pipeline = make_pipeline()
+    pipeline._cached_query_hashes = set()
+    pipeline.cache_tavily_results([
+        {"source_url": "https://example.org/a", "text_snippet": "cached article"},
+    ], query="  Same claim  ")
+
+    pipeline.retrieve_live_web = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("live web search should not run for a cached query")
+    )
+    pipeline.retrieve_faiss = lambda *args, **kwargs: []
+    pipeline.score_and_rank_evidence = lambda **kwargs: []
+
+    result = pipeline.process_claim("same   claim", top_k=5)
+
+    assert result["metadata"]["num_sources_total"] == 0

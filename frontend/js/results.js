@@ -21,6 +21,7 @@ const currentVerdictText = readVerdictFromResults;
 /* ---------- Verdict Card & Dynamic Confidence Radial ---------- */
 function renderVerdictCard() {
     const result = getCurrentClaim()?.result;
+    const breakdown = document.getElementById('claim-breakdown-list');
     if (result) {
         const confidence = Math.round(Number(result.confidence) || 0);
         document.getElementById('results-verdict').textContent = result.verdict;
@@ -31,6 +32,16 @@ function renderVerdictCard() {
         const value = document.getElementById('results-confidence-val');
         if (radial) radial.style.background = `conic-gradient(#ef4444 ${confidence}%, #fee2e2 0)`;
         if (value) value.innerHTML = `${confidence}<span class="text-sm font-body-md">%</span>`;
+        if (breakdown) {
+            const subClaims = Array.isArray(result.sub_claims) ? result.sub_claims : [];
+            breakdown.innerHTML = subClaims.length
+                ? subClaims.map((claim, index) => `
+                    <div class="flex items-start gap-4 p-4 rounded-xl bg-surface border border-glass-stroke">
+                        <span class="font-label-md text-text-muted shrink-0">${String(index + 1).padStart(2, '0')}</span>
+                        <p class="font-body-md text-on-surface">${escapeHtml(String(claim))}</p>
+                    </div>`).join('')
+                : '<p class="text-text-muted text-sm">No subclaims were returned by the verification pipeline.</p>';
+        }
         renderLiveEvidence(result.evidence);
         renderLiveReviewers(result.persona_insights);
         renderLiveAgentFeed(result.persona_insights, result.rounds_executed, result.verdict, result.confidence);
@@ -38,6 +49,16 @@ function renderVerdictCard() {
         return;
     }
     const confNum = 0;
+
+    const verdict = document.getElementById('results-verdict');
+    const label = document.getElementById('results-confidence-label');
+    const explanation = document.getElementById('results-explanation');
+    const sourceCount = document.getElementById('results-sources-count');
+    if (verdict) verdict.textContent = '—';
+    if (label) label.textContent = 'Awaiting result';
+    if (explanation) explanation.textContent = 'Submit a claim to see the evidence-based final judgment.';
+    if (sourceCount) sourceCount.textContent = '0';
+    if (breakdown) breakdown.innerHTML = '<p class="text-text-muted text-sm">Submit a claim to see its subclaims here.</p>';
 
     const radial = document.getElementById('results-confidence-radial');
     const valEl = document.getElementById('results-confidence-val');
@@ -172,6 +193,7 @@ function renderHistory() {
    clear the current claim, so Verify re-centers with no checking card.
    Recent Claims is left alone. */
 function resetAndGoHome() {
+    activeVerificationRun += 1;
     clearCheckingTimers();
     clearCurrentClaim();
 

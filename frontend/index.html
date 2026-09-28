@@ -3,6 +3,7 @@
 <html lang="en"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="data:," rel="icon"/>
 <title>TruthLens - Verifying the future of information</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -473,7 +474,7 @@
 <!-- Sub-Claim Breakdown -->
 <section class="space-y-4">
 <h2 class="font-headline-lg text-headline-lg text-primary border-b border-glass-stroke pb-4">Claim Breakdown</h2>
-<div class="glass-panel p-6 rounded-2xl border border-glass-stroke space-y-4 bg-white shadow-md">
+<div class="glass-panel p-6 rounded-2xl border border-glass-stroke space-y-4 bg-white shadow-md" id="claim-breakdown-list">
 <div class="flex items-start gap-4 p-4 rounded-xl bg-surface border border-glass-stroke">
 <span class="font-label-md text-text-muted shrink-0">01</span>
 <div class="flex-1">
@@ -724,6 +725,7 @@
      page works when opened directly from disk as well as over a local
      server. Load order matters: data and state first, then the view
      modules, then the boot script. -->
+<script src="data/mock-data.js"></script>
 <script src="js/state.js"></script>
 <script src="js/api.js"></script>
 <script src="js/navigation.js"></script>

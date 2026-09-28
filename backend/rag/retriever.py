@@ -213,6 +213,7 @@ class TeamARetrievalPipeline:
         self.metadata_path = metadata_path
         self._index_lock = threading.RLock()
         self._ingested_hashes = set()
+        self._cached_query_hashes = set()
 
         if HAS_FAISS and index_path and metadata_path and os.path.exists(index_path) and os.path.exists(metadata_path):
             try:
@@ -229,6 +230,8 @@ class TeamARetrievalPipeline:
                     text = doc.get("text") or doc.get("cleaned_text") or doc.get("statement")
                     if text:
                         self._ingested_hashes.add(self._content_hash(text))
+                    if doc.get("query_hash"):
+                        self._cached_query_hashes.add(doc["query_hash"])
 
                 if HAS_BM25:
                     tokenized_corpus = []
@@ -267,7 +270,7 @@ class TeamARetrievalPipeline:
             results = self.scraper.search_and_extract(query=query, max_results=max_results)
             if results:
                 try:
-                    summary = self.cache_tavily_results(results)
+                    summary = self.cache_tavily_results(results, query=query)
                     log.info(
                         "Tavily cache: cached=%s skipped=%s failed=%s",
                         summary["cached"], summary["skipped"], summary["failed"],
@@ -282,6 +285,11 @@ class TeamARetrievalPipeline:
     @staticmethod
     def _content_hash(value: str) -> str:
         return hashlib.md5(value.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _query_hash(cls, query: str) -> str:
+        normalized = " ".join(query.casefold().split())
+        return cls._content_hash(f"tavily-query:{normalized}")
 
     def _persist_cache(self) -> None:
         """Persist the index and metadata through same-directory temporary files."""
@@ -311,7 +319,11 @@ class TeamARetrievalPipeline:
                 if temp_path and os.path.exists(temp_path):
                     os.unlink(temp_path)
 
-    def cache_tavily_results(self, tavily_results: List[Dict[str, Any]]) -> Dict[str, int]:
+    def cache_tavily_results(
+        self,
+        tavily_results: List[Dict[str, Any]],
+        query: Optional[str] = None,
+    ) -> Dict[str, int]:
         """Best-effort cache of normalized Tavily evidence into the loaded FAISS index."""
         if not tavily_results:
             return {"cached": 0, "skipped": 0, "failed": 0}
@@ -325,6 +337,7 @@ class TeamARetrievalPipeline:
         new_docs = []
         new_hashes = []
         pending_hashes = set()
+        query_hash = self._query_hash(query) if query else None
         skipped = len(tavily_results) - len(docs)
         for doc in docs:
             url_hash = self._content_hash(doc["url"])
@@ -342,6 +355,32 @@ class TeamARetrievalPipeline:
             pending_hashes.update((url_hash, content_hash))
 
         if not new_docs:
+            if query_hash and self.faiss_index is not None:
+                result_hashes = {
+                    self._content_hash(doc["url"])
+                    for doc in docs
+                    if doc.get("url")
+                }
+                result_hashes.update(
+                    self._content_hash(doc["text"])
+                    for doc in docs
+                    if doc.get("text")
+                )
+                marked = False
+                with self._index_lock:
+                    for doc in self.metadata:
+                        doc_hashes = set()
+                        if doc.get("url"):
+                            doc_hashes.add(self._content_hash(doc["url"]))
+                        text = doc.get("text") or doc.get("cleaned_text") or doc.get("statement")
+                        if text:
+                            doc_hashes.add(self._content_hash(text))
+                        if doc_hashes.intersection(result_hashes) and doc.get("query_hash") != query_hash:
+                            doc["query_hash"] = query_hash
+                            marked = True
+                    if marked:
+                        self._cached_query_hashes.add(query_hash)
+                        self._persist_cache()
             return {"cached": 0, "skipped": skipped, "failed": 0}
 
         texts = [doc["text"] for doc in new_docs]
@@ -361,11 +400,15 @@ class TeamARetrievalPipeline:
             for doc, vector, (url_hash, content_hash) in zip(new_docs, vectors, new_hashes):
                 start_id = self.faiss_index.ntotal
                 try:
+                    if query_hash:
+                        doc["query_hash"] = query_hash
                     doc["faiss_id"] = start_id
                     self.faiss_index.add(vector.reshape(1, -1))
                     self.metadata.append(doc)
                     self._persist_cache()
                     self._ingested_hashes.update((url_hash, content_hash))
+                    if query_hash:
+                        self._cached_query_hashes.add(query_hash)
                     cached += 1
                 except Exception as error:
                     log.warning("Failed to cache Tavily result [%s]: %s", start_id, error)
@@ -583,7 +626,8 @@ class TeamARetrievalPipeline:
 
         # 1. Search FAISS first so a strong cached result can avoid Tavily.
         raw_faiss_evidence = self.retrieve_faiss(normalized_claim, top_n=top_k * 2)
-        if self._has_sufficient_cached_evidence(raw_faiss_evidence):
+        query_was_cached = self._query_hash(normalized_claim) in self._cached_query_hashes
+        if query_was_cached or self._has_sufficient_cached_evidence(raw_faiss_evidence):
             raw_web_evidence = []
         else:
             raw_web_evidence = self.retrieve_live_web(normalized_claim, max_results=top_k * 2)
@@ -623,7 +667,8 @@ class TeamARetrievalPipeline:
                 "num_sources_total": len(unique_raw),
                 "num_sources_kept": len(scored_evidence),
                 "num_live_web_sources": sum(
-                    1 for item in scored_evidence if item.get("source_type") == "web"
+                    1 for item in scored_evidence
+                    if item.get("source_type") == "web" or item.get("origin") == "tavily_cache"
                 ),
                 "top_source_domain": top_domain
             }

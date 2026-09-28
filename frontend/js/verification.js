@@ -26,6 +26,7 @@
 /* Every simulated stage timer, so a new claim or a reset can cancel
    an in-flight run instead of letting two runs fight over the DOM. */
 let checkingTimers = [];
+let activeVerificationRun = 0;
 
 function clearCheckingTimers() {
     checkingTimers.forEach(clearTimeout);
@@ -345,6 +346,7 @@ async function analyzeClaim() {
 
     // A new submission becomes the current claim and replaces any
     // previous one, along with the pipeline built for it.
+    const runId = ++activeVerificationRun;
     setCurrentClaim(claim, currentMode);
     let verificationRequest;
     try {
@@ -378,27 +380,33 @@ async function analyzeClaim() {
     const cardStages = [600, 1200, 1800, 2400];
     cardStages.forEach((delay, i) => {
         checkingTimers.push(setTimeout(() => {
+            if (runId !== activeVerificationRun) return;
             setSideCheckingStep(i + 1, 'done');
             setSideCheckingStep(i + 2, 'active');
         }, delay));
     });
-    checkingTimers.push(setTimeout(() => setSideCheckingStep(5, 'done'), 3000));
+    checkingTimers.push(setTimeout(() => {
+        if (runId !== activeVerificationRun) return;
+        setSideCheckingStep(5, 'done');
+    }, 3000));
 
     // Card finishes -> hand over to the full verification screen
     checkingTimers.push(setTimeout(async () => {
+        if (runId !== activeVerificationRun) return;
         markClaimChecking();
         setTargetClaim(claim, false);
         resetCheckingPipeline();
         switchView('checking');
-        await simulateCheckingProcess(verificationRequest);
+        await simulateCheckingProcess(verificationRequest, runId);
     }, 3400));
 }
 
 /* The full pipeline run on #view-checking. Timers only — this is
    where real backend progress events would be wired in. */
-async function simulateCheckingProcess(verificationRequest) {
+async function simulateCheckingProcess(verificationRequest, runId) {
     // Stage 3 completes, stage 4 begins
     checkingTimers.push(setTimeout(() => {
+        if (runId !== activeVerificationRun) return;
         setPipelineStep(3, 'done');
         setPipelineStep(4, 'running');
         setTerminalState('judging');
@@ -406,6 +414,7 @@ async function simulateCheckingProcess(verificationRequest) {
 
     // Stage 4 completes, stage 5 begins
     checkingTimers.push(setTimeout(() => {
+        if (runId !== activeVerificationRun) return;
         setPipelineStep(4, 'done');
         setPipelineStep(5, 'running');
         setTerminalState('finalizing');
@@ -414,6 +423,7 @@ async function simulateCheckingProcess(verificationRequest) {
     // Verdict reached -> Results
     try {
         const result = await verificationRequest;
+        if (runId !== activeVerificationRun) return;
         setPipelineAllComplete();
         renderDynamicProcessingLog(result);
         setTerminalState('complete');
@@ -421,6 +431,7 @@ async function simulateCheckingProcess(verificationRequest) {
         addToHistory(result.original_claim, result.verdict);
         switchView('results');
     } catch (error) {
+        if (runId !== activeVerificationRun) return;
         clearCheckingTimers();
         alert(error.message || 'Verification could not be completed.');
         resetAndGoHome();
