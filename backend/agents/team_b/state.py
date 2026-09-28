@@ -13,6 +13,9 @@ class QAMemoryEntry(TypedDict):
     question:   str
     answer:     str
     insight:    str   # one-line summary of what was learned
+    stance:     str   # SUPPORT | CONTRADICT | NEUTRAL | UNCERTAIN
+    confidence: float # Round 1 persona confidence, 0.0 - 1.0
+    reasoning:  str   # structured evidence-based reasoning
 
 
 class PersonaInsight(TypedDict):

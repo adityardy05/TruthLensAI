@@ -4,7 +4,7 @@ Runs all 3 personas × (question + answer) with shared memory.
 Memory M accumulates after each Q&A pair.
 Same DeepSeek instance handles both persona Q and AAns A.
 
-LLM calls: 6  (3 questions + 3 answers)
+LLM calls: 6  (3 questions + 3 structured answers)
 """
 
 import sys
@@ -74,15 +74,20 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
             )
             llm_calls += 1
 
-            # ── Step 2: Same DeepSeek answers as AAns ───────────
-            print(f"[round1_qa] AAns answering for {name}...")
-            answer = module.generate_answer(
+            # ── Step 2: Generate structured Round 1 stance ─────
+            print(f"[round1_qa] {name} generating structured stance...")
+            structured = module.generate_round1_structured_answer(
                 claim=claim,
                 question=question,
                 evidence=evidence,
                 memory=memory
             )
             llm_calls += 1
+
+            stance = structured["stance"]
+            persona_confidence = structured["confidence"]
+            reasoning = structured["reasoning"]
+            answer = reasoning
 
             # ── Step 3: Extract one-line insight ────────────────
             insight = module.extract_insight(question, answer)
@@ -93,8 +98,11 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
                 "round":    ROUND_NUM,
                 "persona":  name,
                 "question": question,
-                "answer":   answer,
-                "insight":  insight,
+                "answer":      answer,
+                "stance":      stance,
+                "confidence":  persona_confidence,
+                "reasoning":   reasoning,
+                "insight":     insight,
             })
 
             print(f"[round1_qa] {name} done. Insight: {insight[:60]}...")

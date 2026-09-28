@@ -13,9 +13,9 @@ Implements Team A's Module A RAG Retrieval and 4-Factor Evidence Scoring:
         s₃ = Hybrid Domain Credibility (Hardlist → MBFC cache → Dynamic fallback)
         s₄ = Recency Score (<30 days = 1.0, <1 yr = 0.6, >5 yrs = 0.1)
 
-Combines:
-    - Live Web Evidence via Tavily Search API + Trafilatura fallback
+Current runtime retrieval:
     - FAISS Vector DB search over historical claims database
+    - Tavily live retrieval infrastructure retained but disabled in process_claim
 ================================================================
 """
 
@@ -572,7 +572,7 @@ class TeamARetrievalPipeline:
         """
         Executes full Module A pipeline:
           1. Sub-claim decomposition
-          2. Multi-source evidence retrieval (Tavily live web + FAISS)
+          2. FAISS-only evidence retrieval (live Tavily disabled)
           3. 4-factor scoring R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
           4. Adheres strictly to Module A -> Module B Inter-Team Data Contract.
         """
@@ -581,14 +581,13 @@ class TeamARetrievalPipeline:
         normalized_claim = claim.strip()
         sub_claims = self.generate_sub_claims(normalized_claim)
 
-        # 1. Search FAISS first so a strong cached result can avoid Tavily.
-        raw_faiss_evidence = self.retrieve_faiss(normalized_claim, top_n=top_k * 2)
-        if self._has_sufficient_cached_evidence(raw_faiss_evidence):
-            raw_web_evidence = []
-        else:
-            raw_web_evidence = self.retrieve_live_web(normalized_claim, max_results=top_k * 2)
-
-        raw_all = raw_web_evidence + raw_faiss_evidence
+        # 1. FAISS-only retrieval.
+        # Tavily live retrieval is disabled in this runtime mode.
+        raw_faiss_evidence = self.retrieve_faiss(
+            normalized_claim,
+            top_n=top_k * 2
+        )
+        raw_all = raw_faiss_evidence
 
         # Deduplicate evidence by content/URL
         seen_urls = set()
@@ -622,9 +621,7 @@ class TeamARetrievalPipeline:
                 "retrieval_time_ms": elapsed_ms,
                 "num_sources_total": len(unique_raw),
                 "num_sources_kept": len(scored_evidence),
-                "num_live_web_sources": sum(
-                    1 for item in scored_evidence if item.get("source_type") == "web"
-                ),
+                "num_live_web_sources": 0,
                 "top_source_domain": top_domain
             }
         }
