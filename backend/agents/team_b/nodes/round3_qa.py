@@ -18,6 +18,7 @@ LLM calls:
 
 import sys
 import os
+import json
 
 sys.path.append(
     os.path.join(
@@ -114,6 +115,18 @@ def round3_qa_node(
     # Memory available before Round 3
     prior_memory = qa_memory.copy()
 
+    print("\n[LANGGRAPH STATE]")
+    print(f"Round: {ROUND_NUM}")
+    print("Agent: Logical Analyst")
+    print(f"Previous QA Count: {len(prior_memory)}")
+    print("Current Memory/State Available: YES")
+    print("\n[ROUND 3 - RESOLVE]")
+    print("\n------------------------------------------------------------")
+    print("AGENT: LOGICAL ANALYST")
+    print("------------------------------------------------------------")
+    print("\nMEMORY/CONTEXT USED:")
+    print(f"Accumulated QA entries: {len(prior_memory)}; low-quality evidence: {len(low_quality)}")
+
     try:
 
         # ── Step 1: Generate question ───────────────────────────
@@ -165,6 +178,11 @@ def round3_qa_node(
             "reasoning",
             ""
         )
+
+        print("\nQUESTION:\n" + str(question))
+        print("\nANSWER:\n" + str(reasoning))
+        print("\nAGENT OUTPUT:\n" + json.dumps(result, indent=2, default=str))
+        print(f"\nSTANCE:\n{stance}")
 
         # ── Step 3: Extract insight ─────────────────────────────
 

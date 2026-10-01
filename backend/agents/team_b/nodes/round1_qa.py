@@ -9,6 +9,7 @@ LLM calls: 6  (3 questions + 3 structured answers)
 
 import sys
 import os
+import json
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from backend.agents.team_b.state import VerificationState
@@ -58,12 +59,22 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
     llm_calls = state.get("total_llm_calls", 0)
 
     print(f"[round1_qa] Starting Round 1 — {len(PERSONAS)} personas")
+    print("\n" + "#" * 64)
+    print("[TRUTHLENS MULTI-AGENT DELIBERATION]")
+    print("#" * 64)
+    print("\n[ROUND 1 - ANALYZE]")
 
     for persona in PERSONAS:
         name   = persona["name"]
         module = persona["module"]
 
         try:
+            print("\n[LANGGRAPH STATE]")
+            print(f"Round: {ROUND_NUM}")
+            print(f"Agent: {name}")
+            print(f"Previous QA Count: {len(memory)}")
+            print("Current Memory/State Available: YES")
+
             # ── Step 1: Persona generates question ──────────────
             print(f"[round1_qa] {name} generating question...")
             question = module.generate_question(
@@ -89,6 +100,14 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
             reasoning = structured["reasoning"]
             answer = reasoning
 
+            print("\n" + "-" * 60)
+            print(f"AGENT: {name.upper()}")
+            print("-" * 60)
+            print("\nQUESTION:\n" + str(question))
+            print("\nANSWER:\n" + str(answer))
+            print("\nAGENT OUTPUT:\n" + json.dumps(structured, indent=2, default=str))
+            print(f"\nSTANCE:\n{stance}")
+
             # ── Step 3: Extract one-line insight ────────────────
             insight = module.extract_insight(question, answer)
 
@@ -109,6 +128,7 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
 
         except Exception as e:
             print(f"[round1_qa] {name} failed: {e}. Skipping.")
+            print(f"\nAGENT OUTPUT:\n[FAILED: {name}] {e}")
             memory.append({
                 "round":    ROUND_NUM,
                 "persona":  name,

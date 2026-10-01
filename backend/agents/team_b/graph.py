@@ -308,6 +308,46 @@ def run_graph(
         config=config
     )
 
+    qa_memory = final_state.get("qa_memory", [])
+    weighted_support = sum(
+        float(item.get("combined_reliability", 0.0) or 0.0)
+        for item in final_state.get("evidence", [])
+        if str(item.get("stance", "")).upper() == "SUPPORT"
+    )
+    weighted_refute = sum(
+        float(item.get("combined_reliability", 0.0) or 0.0)
+        for item in final_state.get("evidence", [])
+        if str(item.get("stance", "")).upper() in {"CONTRADICT", "REFUTE"}
+    )
+
+    resolved_stances = {}
+    for persona in ("Fact Checker", "Logical Analyst", "Bias Detector"):
+        persona_entries = [
+            entry for entry in qa_memory
+            if entry.get("persona") == persona
+        ]
+        resolved_stances[persona] = (
+            persona_entries[-1].get("stance", "UNCERTAIN")
+            if persona_entries else "UNCERTAIN"
+        )
+
+    print("\n" + "#" * 64)
+    print("[FINAL JUDGEMENT]")
+    print("#" * 64)
+    print(f"\nClaim:\n{claim}")
+    print(f"\nEvidence Count:\n{len(final_state.get('evidence', []))}")
+    print(f"\nR1 QA Count:\n{sum(1 for item in qa_memory if item.get('round') == 1)}")
+    print(f"\nR2 QA Count:\n{sum(1 for item in qa_memory if item.get('round') == 2)}")
+    print(f"\nR3 QA Count:\n{sum(1 for item in qa_memory if item.get('round') == 3)}")
+    print("\nAgent Stances:")
+    for persona in ("Fact Checker", "Logical Analyst", "Bias Detector"):
+        print(f"- {persona}: {resolved_stances[persona]}")
+    print(f"\nFINAL LABEL:\n{final_state.get('verdict', 'UNVERIFIABLE')}")
+    print(f"\nCONFIDENCE:\n{float(final_state.get('final_confidence', 0.0)):.2f}")
+    print("\n" + "#" * 64)
+    print("[TRUTHLENS PIPELINE COMPLETE]")
+    print("#" * 64)
+
     print(
         f"\n[TruthLens] VERDICT: "
         f"{final_state['verdict']} "

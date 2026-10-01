@@ -41,7 +41,9 @@ Python packages:
 """
 
 import io
+import os
 import re
+import shutil
 import numpy as np
 from PIL import Image
 
@@ -107,6 +109,26 @@ except ImportError:
 TESSERACT_LANG = "eng+hin+tel+tam+urd+ben+mar"
 
 
+def configure_tesseract() -> None:
+    """Use an explicit or commonly installed Tesseract executable when available."""
+    if not HAS_PYTESSERACT:
+        return
+    configured_path = os.getenv("TESSERACT_CMD") or shutil.which("tesseract")
+    if not configured_path and os.name == "nt":
+        for candidate in (
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        ):
+            if os.path.exists(candidate):
+                configured_path = candidate
+                break
+    if configured_path:
+        pytesseract.pytesseract.tesseract_cmd = configured_path
+
+
+configure_tesseract()
+
+
 # ================================================================
 # STEP 1: IMAGE PREPROCESSING
 # ================================================================
@@ -118,7 +140,7 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     if len(img.shape) == 2:
         gray = img
     else:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     denoised = cv2.fastNlMeansDenoising(gray, h=10)
     thresh = cv2.adaptiveThreshold(
         denoised, 255,

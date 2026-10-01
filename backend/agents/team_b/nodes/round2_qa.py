@@ -18,6 +18,7 @@ LLM calls:
 
 import sys
 import os
+import json
 
 sys.path.append(
     os.path.join(
@@ -28,7 +29,7 @@ sys.path.append(
 )
 
 from backend.agents.team_b.state import VerificationState
-from backend.agents.team_b.personas import fact_checker
+from backend.agents.team_b.personas import fact_checker, logical_analyst, bias_detector
 
 
 ROUND_NUM = 2
@@ -113,146 +114,61 @@ def round2_qa_node(
             ),
         }
 
-    # Memory available before Round 2
-    prior_memory = qa_memory.copy()
+    personas = (
+        ("Fact Checker", fact_checker),
+        ("Logical Analyst", logical_analyst),
+        ("Bias Detector", bias_detector),
+    )
 
-    try:
-
-        # ── Step 1: Generate question ───────────────────────────
-
-        print(
-            "[round2_qa] "
-            "Fact Checker generating question..."
-        )
-
-        question = fact_checker.generate_question(
-            claim=claim,
-            evidence=high_quality,
-            memory=prior_memory,
-            round_num=ROUND_NUM,
-        )
-
-        llm_calls += 1
-
-        # ── Step 2: Generate structured answer ──────────────────
-
-        print(
-            "[round2_qa] "
-            "Fact Checker generating "
-            "structured answer..."
-        )
-
-        result = fact_checker.generate_structured_answer(
-            claim=claim,
-            question=question,
-            evidence=high_quality,
-            memory=prior_memory,
-        )
-
-        llm_calls += 1
-
-        stance = result.get(
-            "stance",
-            "UNCERTAIN"
-        )
-
-        confidence = float(
-            result.get(
-                "confidence",
-                0.0
+    print("\n[ROUND 2 - CHALLENGE]")
+    for persona_name, persona in personas:
+        prior_memory = qa_memory.copy()
+        try:
+            question = persona.generate_question(
+                claim=claim,
+                evidence=high_quality,
+                memory=prior_memory,
+                round_num=ROUND_NUM,
             )
-        )
-
-        reasoning = result.get(
-            "reasoning",
-            ""
-        )
-
-        # ── Step 3: Extract insight ─────────────────────────────
-
-        insight = fact_checker.extract_insight(
-            question,
-            reasoning
-        )
-
-        # ── Step 4: Save to Q&A memory ─────────────────────────
+            llm_calls += 1
+            structured_answer = getattr(persona, "generate_structured_answer", None)
+            if structured_answer is None:
+                structured_answer = persona.generate_round1_structured_answer
+            result = structured_answer(
+                claim=claim,
+                question=question,
+                evidence=high_quality,
+                memory=prior_memory,
+            )
+            llm_calls += 1
+            stance = result.get("stance", "UNCERTAIN")
+            confidence = float(result.get("confidence", 0.0))
+            reasoning = result.get("reasoning", "")
+        except Exception as error:
+            print(f"[round2_qa] {persona_name} failed: {error}")
+            stance = "UNCERTAIN"
+            confidence = 0.0
+            reasoning = f"Round 2 error: {error}"
+            question = f"[FAILED: {persona_name}]"
 
         qa_memory.append({
             "round": ROUND_NUM,
-
-            "persona": "Fact Checker",
-
+            "persona": persona_name,
             "question": question,
-
             "answer": reasoning,
-
-            "insight": insight,
-
+            "insight": persona.extract_insight(question, reasoning),
             "stance": stance,
-
             "confidence": confidence,
         })
-
-        # ── Step 5: Save structured round history ──────────────
-
-        qa_entry = {
+        qa_history.append({
             "round": current_round,
-
-            "fact_checker": {
+            persona_name.casefold().replace(" ", "_"): {
                 "stance": stance,
-
                 "reasoning": reasoning,
-
                 "confidence": confidence,
             },
-
             "confidence": confidence,
-        }
-
-        qa_history.append(
-            qa_entry
-        )
-
-        print(
-            "[round2_qa] "
-            f"Fact Checker stance={stance} "
-            f"confidence={confidence:.3f}"
-        )
-
-        print(
-            "[round2_qa] "
-            "Round 2 complete."
-        )
-
-    except Exception as e:
-
-        print(
-            f"[round2_qa] "
-            f"Fact Checker failed: {e}"
-        )
-
-        # Save failure information so the
-        # final node knows Round 2 did not
-        # produce a valid result.
-
-        qa_entry = {
-            "round": current_round,
-
-            "fact_checker": {
-                "stance": "UNCERTAIN",
-
-                "reasoning":
-                    f"Round 2 error: {e}",
-
-                "confidence": 0.0,
-            },
-
-            "confidence": 0.0,
-        }
-
-        qa_history.append(
-            qa_entry
-        )
+        })
 
     # ── Return updated state ────────────────────────────────────
 
@@ -265,17 +181,7 @@ def round2_qa_node(
 
         "qa_history": qa_history,
 
-        # Round 2 produced reasoning only if
-        # the Fact Checker completed successfully.
-        "rounds_executed": len([
-            entry
-            for entry in qa_history
-            if (
-                "fact_checker" in entry
-                or "logical_analyst" in entry
-                or "bias_detector" in entry
-            )
-        ]) + 1,
+        "rounds_executed": 2,
 
         "total_llm_calls": llm_calls,
     }

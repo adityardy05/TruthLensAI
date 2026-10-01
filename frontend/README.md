@@ -31,8 +31,8 @@ js/
   state.js              the shared in-memory current claim + history; no DOM
   navigation.js         switchView, navbar highlighting, nav entry points
   input.js              Text / Image / URL modes, char counter, language badge
-  image.js              upload validation, preview, mock OCR, remove
-  verification.js       both checking components and the simulated pipeline
+  image.js              upload validation, preview, server OCR result, remove
+  verification.js       checking components and live API-backed pipeline
   results.js            verdict readout, evidence accordion, Recent Claims
   export.js             PDF export via jsPDF
   app.js               boot sequence
@@ -76,23 +76,21 @@ consistent while the app is open.
 
 Recent Claims is a separate list, also session-only.
 
-## This is a prototype
+## Backend integration
 
-The verification is simulated with `setTimeout`. There is no FastAPI, LangGraph
-or Ollama backend connected, and the verdict, sub-claims, sources and reviewer
-findings are static.
-
-The seams for a real backend are deliberately narrow:
+The frontend submits claims to the Flask API under `/api/v1`. The request runs
+through OCR or URL extraction, retrieval, and the LangGraph reviewer pipeline.
+The timers in `verification.js` only provide visual stage transitions while the
+real request is running.
 
 | What a backend would replace | Where |
 | --- | --- |
 | the claim being submitted | `getCurrentClaimText()` in `js/input.js` |
-| URL extraction | `fetchUrl()` in `js/input.js` |
-| OCR | `handleImageUpload()` in `js/image.js` |
-| language detection | `detectLanguage()` in `js/input.js` |
-| stage progress events | `simulateCheckingProcess()` in `js/verification.js` |
-| the verdict | `readVerdictFromResults()` in `js/results.js` |
-| all demo content | `data/mock-data.js` |
+| URL validation | `fetchUrl()` in `js/input.js` |
+| image upload | `submitVerification()` in `js/api.js` |
+| OCR result rendering | `renderImageOcrResult()` in `js/verification.js` |
+| stage presentation | `simulateCheckingProcess()` in `js/verification.js` |
+| result rendering | `renderVerdictCard()` in `js/results.js` |
 
 `DEFAULT_CLAIM` in `data/mock-data.js` is also duplicated as a markup default
 in `index.html` (`#claim-input`, `#ocr-text`, `#url-extracted`,

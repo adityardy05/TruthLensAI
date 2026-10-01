@@ -274,6 +274,23 @@ function renderDynamicProcessingLog(result) {
         '<div class="mt-1 flex items-center text-[#00dbe9]" id="terminal-cursor-line">&gt; Verification completed<span class="terminal-cursor"></span></div>';
 }
 
+function renderInitialProcessingLog(claim) {
+    const terminal = document.getElementById('terminal-content');
+    if (!terminal) return;
+    terminal.innerHTML = `
+        <div class="text-white/60">TruthLensAI verification run started.</div>
+        <div class="text-white/60">Claim received by the verification backend.</div>
+        <div class="mt-2">Analyzing: "${escapeHtml(String(claim))}"</div>
+        <div class="mt-2 flex items-center text-[#00dbe9]" id="terminal-cursor-line">&gt; Waiting for backend analysis<span class="terminal-cursor"></span></div>`;
+}
+
+function renderImageOcrResult(result) {
+    if (result.input_type !== 'image') return;
+    const ocr = document.getElementById('ocr-text');
+    if (!ocr) return;
+    ocr.value = result.input_metadata?.ocr_text || result.original_claim || '';
+}
+
 function setTargetClaim(text, isExample) {
     const claimEl = document.getElementById('checking-claim');
     if (claimEl) claimEl.textContent = '"' + text + '"';
@@ -288,6 +305,7 @@ function setTargetClaim(text, isExample) {
 function resetCheckingPipeline() {
     clearCheckingTimers();
     resetPipelineSteps();
+    renderInitialProcessingLog('No claim submitted yet.');
     setTerminalState('default');
 }
 const resetPipeline = resetCheckingPipeline;
@@ -376,29 +394,11 @@ async function analyzeClaim() {
     clearCheckingTimers();
     resetSideCheckingSteps('active');
 
-    // Five-stage animation on the card
-    const cardStages = [600, 1200, 1800, 2400];
-    cardStages.forEach((delay, i) => {
-        checkingTimers.push(setTimeout(() => {
-            if (runId !== activeVerificationRun) return;
-            setSideCheckingStep(i + 1, 'done');
-            setSideCheckingStep(i + 2, 'active');
-        }, delay));
-    });
-    checkingTimers.push(setTimeout(() => {
-        if (runId !== activeVerificationRun) return;
-        setSideCheckingStep(5, 'done');
-    }, 3000));
-
-    // Card finishes -> hand over to the full verification screen
-    checkingTimers.push(setTimeout(async () => {
-        if (runId !== activeVerificationRun) return;
-        markClaimChecking();
-        setTargetClaim(claim, false);
-        resetCheckingPipeline();
-        switchView('checking');
-        await simulateCheckingProcess(verificationRequest, runId);
-    }, 3400));
+    markClaimChecking();
+    setTargetClaim(claim, false);
+    renderInitialProcessingLog(claim);
+    switchView('checking');
+    simulateCheckingProcess(verificationRequest, runId);
 }
 
 /* The full pipeline run on #view-checking. Timers only — this is
@@ -426,6 +426,7 @@ async function simulateCheckingProcess(verificationRequest, runId) {
         if (runId !== activeVerificationRun) return;
         setPipelineAllComplete();
         renderDynamicProcessingLog(result);
+        renderImageOcrResult(result);
         setTerminalState('complete');
         setCurrentResult(result);
         addToHistory(result.original_claim, result.verdict);

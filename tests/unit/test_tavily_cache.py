@@ -63,7 +63,7 @@ def test_cache_deduplicates_by_url_and_content(mock_persist):
 
 @patch("backend.rag.retriever.faiss", SimpleNamespace(normalize_L2=lambda vectors: None))
 @patch.object(TeamARetrievalPipeline, "_persist_cache")
-def test_faiss_similarity_at_or_above_threshold_skips_tavily():
+def test_faiss_similarity_at_or_above_threshold_skips_tavily(mock_persist):
     pipeline = make_pipeline()
     pipeline.retrieve_faiss = lambda *args, **kwargs: [
         {"retrieval_score": 0.75, "origin": "liar_dataset"}

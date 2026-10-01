@@ -196,6 +196,9 @@ function resetAndGoHome() {
     activeVerificationRun += 1;
     clearCheckingTimers();
     clearCurrentClaim();
+    setInputMode('text');
+
+    if (typeof removeImage === 'function') removeImage();
 
     const claimInput = document.getElementById('claim-input');
     if (claimInput) claimInput.value = '';

@@ -270,6 +270,23 @@ class TeamARetrievalPipeline:
                 return []
             results = self.scraper.search_and_extract(query=query, max_results=max_results)
             if results:
+                print("\n" + "=" * 60)
+                print("[TAVILY RETRIEVAL]")
+                print("Reason: Best FAISS similarity < 0.75")
+                print(f"\nTavily Query: {query}\n")
+                print("Retrieved Web Evidence:")
+                for index, result in enumerate(results, start=1):
+                    title = result.get("title") or "Untitled"
+                    url = result.get("source_url") or result.get("url") or "N/A"
+                    source_type = result.get("source_type") or "web"
+                    content = result.get("text_snippet") or result.get("content") or ""
+                    print(f"{index}. {title}")
+                    print(f"   URL: {url}")
+                    print(f"   Source Type: {source_type}")
+                    print(f"   Content Length: {len(str(content))}")
+                print(f"\nTotal Tavily Sources: {len(results)}")
+                print("\nAction:\n→ Caching Tavily evidence into FAISS")
+                print("=" * 60)
                 try:
                     summary = self.cache_tavily_results(results, query=query)
                     log.info(
@@ -500,6 +517,16 @@ class TeamARetrievalPipeline:
             default=0.0,
         ) >= threshold
 
+    @staticmethod
+    def _best_faiss_score(evidence: List[Dict[str, Any]]) -> float:
+        return max(
+            (
+                float(item.get("retrieval_score", 0.0) or 0.0)
+                for item in evidence
+            ),
+            default=0.0,
+        )
+
     def score_and_rank_evidence(
         self,
         claim: str,
@@ -594,6 +621,14 @@ class TeamARetrievalPipeline:
                 "retrieval_rank": 0  # To be set after sorting
             })
 
+            print("\n" + "=" * 60)
+            print("[EVIDENCE QUALITY / R(d)]")
+            print(f"\nEvidence: {item.get('title') or url or 'Untitled'}")
+            print(f"R(d): {combined_reliability:.4f}")
+            print("Threshold: 0.70")
+            print(f"Decision: {'PASS' if combined_reliability >= 0.70 else 'FAIL'}")
+            print("=" * 60)
+
         # Sort by combined_reliability descending
         processed_evidence.sort(key=lambda x: x["combined_reliability"], reverse=True)
 
@@ -651,11 +686,41 @@ class TeamARetrievalPipeline:
             top_n=top_k * 2
         )
 
+        best_faiss_score = self._best_faiss_score(raw_faiss_evidence)
+        tavily_threshold = float(
+            os.getenv("TAVILY_CACHE_SIMILARITY_THRESHOLD", "0.75")
+        )
+        print("\n" + "=" * 60)
+        print("[FAISS RETRIEVAL]")
+        print(f"Claim: {normalized_claim}\n")
+        print("Retrieved Evidence:")
+        for index, item in enumerate(raw_faiss_evidence, start=1):
+            title_or_url = item.get("title") or item.get("source_url") or "Untitled"
+            print(f"{index}. {title_or_url}")
+            print(f"   Similarity Score: {float(item.get('retrieval_score', 0.0) or 0.0):.4f}")
+        print(f"\nBest FAISS Similarity Score: {best_faiss_score:.4f}")
+        print(f"Tavily Trigger Threshold: {tavily_threshold:.2f}")
+        print("=" * 60)
+
         # 2. Trigger Tavily only when the best FAISS similarity is below
         #    the dedicated retrieval threshold. This intentionally does
         #    not inspect the evidence origin.
         raw_web_evidence = []
-        if not self._has_sufficient_faiss_evidence(raw_faiss_evidence):
+        sufficient_faiss = self._has_sufficient_faiss_evidence(raw_faiss_evidence)
+        print("\n" + "=" * 60)
+        print("[SUFFICIENT EVIDENCE GATEWAY]\n")
+        print(f"Best FAISS Score: {best_faiss_score:.4f}")
+        print(f"Required Threshold: {tavily_threshold:.2f}\n")
+        print(f"Decision: {'SUFFICIENT' if sufficient_faiss else 'INSUFFICIENT'}\n")
+        if sufficient_faiss:
+            print("→ FAISS evidence is sufficient")
+            print("→ Skipping Tavily")
+        else:
+            print("→ FAISS evidence is below threshold")
+            print("→ Calling Tavily for additional evidence")
+        print("\nNote: 0.75 controls FAISS→Tavily retrieval only; R(d) >= 0.70 is a separate evidence-quality threshold.")
+        print("=" * 60)
+        if not sufficient_faiss:
             raw_web_evidence = self.retrieve_live_web(
                 normalized_claim,
                 max_results=top_k * 2
@@ -685,7 +750,7 @@ class TeamARetrievalPipeline:
         # returning. Therefore a later request can reuse the newly indexed
         # evidence without another Tavily call when its similarity is >= 0.75.
         elapsed_ms = int((time.time() - start_time) * 1000)
-        top_domain = scored_evidence[0]["source_domain"] if scored_evidence else "N/A"
+        top_domain = scored_evidence[0].get("source_domain", "unknown") if scored_evidence else "N/A"
 
         # 4. Format exact Inter-Team Data Contract JSON (Module A -> Module B)
         output_contract = {
@@ -701,7 +766,10 @@ class TeamARetrievalPipeline:
                 "num_live_web_sources": sum(
                     1
                     for item in scored_evidence
-                    if item.get("source_type") == "web"
+                    if item.get("source_type") in {
+                        "web", "tavily", "trafilatura", "tavily_fallback"
+                    }
+                    or item.get("origin") in {"web", "tavily", "tavily_cache"}
                 ),
                 "top_source_domain": top_domain
             }

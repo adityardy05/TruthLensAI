@@ -1,7 +1,7 @@
 /* ============================================================
    TruthLens · js/input.js
    The Text / Image / URL input modes, the character counter, the
-   language badge and URL fetching.
+    language badge and URL validation.
 
    getCurrentClaimText() is the single place a real backend would
    read the submitted claim from.
@@ -29,8 +29,10 @@ function getCurrentClaimText() {
     if (currentMode === 'image') {
         const ocr = document.getElementById('ocr-text');
         const preview = document.getElementById('img-preview');
+        const file = document.getElementById('img-upload')?.files?.[0];
         const hasImage = preview && !preview.classList.contains('hidden');
-        return (hasImage && ocr) ? ocr.value.trim() : '';
+        if (!hasImage || !file) return '';
+        return ocr?.value.trim() || 'Image claim';
     }
     if (currentMode === 'url') {
         const preview = document.getElementById('url-preview');
@@ -43,8 +45,7 @@ function getCurrentClaimText() {
 }
 
 /* ---------- URL mode ----------
-   No backend yet: this validates the scheme and reveals the
-   placeholder extraction. Swap in a real fetch when the API exists. */
+    Validate the URL locally, then submit it to the backend for extraction. */
 function fetchUrl() {
     const val = document.getElementById('url-input').value.trim();
     const err = document.getElementById('url-error');
@@ -59,9 +60,8 @@ function fetchUrl() {
     preview.classList.remove('hidden');
 }
 
-/* ---------- Language detection ----------
-   Script-range heuristic only (patterns in data/mock-data.js);
-   a real detector belongs on the backend. */
+/* ---------- Language badge ----------
+    This is only immediate UI feedback; the backend is authoritative. */
 function detectLanguage(text) {
     for (const { pattern, lang } of LANG_PATTERNS) {
         if (pattern.test(text)) return lang;

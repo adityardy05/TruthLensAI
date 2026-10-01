@@ -1,5 +1,9 @@
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+$python = Join-Path $root '.venv\Scripts\python.exe'
+if (-not (Test-Path $python)) {
+    throw "Project virtual environment not found at $python. Create it and install requirements first."
+}
 
 Get-Content .env | ForEach-Object {
     if ($_ -match '^\s*#' -or $_ -match '^\s*$') { return }
@@ -14,7 +18,7 @@ from backend.core.config import load_settings, validate_runtime_config
 settings = load_settings()
 validate_runtime_config(settings, mode='bot', strict=False)
 print('Runtime config check complete for bot')
-'@ | python -
+'@ | & $python -
 
 Write-Host 'Starting TruthLens Telegram bot...'
-python -m bot.main
+& $python -m bot.main

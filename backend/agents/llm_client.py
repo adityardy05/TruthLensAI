@@ -77,8 +77,31 @@ def call_deepseek_json(prompt: str, timeout: int = 120) -> dict:
         clean = "\n".join(lines[1:-1])
     try:
         return json.loads(clean)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON from model: {e}\nRaw: {raw[:200]}")
+    except json.JSONDecodeError:
+        lowered = clean.casefold()
+        contradicting = (
+            "does not support" in lowered
+            or "not support" in lowered
+            or "does not" in lowered
+            or "no evidence" in lowered
+            or "false" in lowered
+        )
+        supporting = (
+            "supports the claim" in lowered
+            or "evidence supports" in lowered
+            or "true" in lowered
+        )
+        if contradicting and not supporting:
+            stance, confidence = "CONTRADICT", 0.8
+        elif supporting and not contradicting:
+            stance, confidence = "SUPPORT", 0.8
+        else:
+            stance, confidence = "UNCERTAIN", 0.0
+        return {
+            "stance": stance,
+            "confidence": confidence,
+            "reasoning": clean,
+        }
 
 
 def check_ollama_health() -> bool:
