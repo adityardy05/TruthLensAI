@@ -7,7 +7,7 @@ Every node reads from this and writes back to it.
 from typing import TypedDict, List, Dict, Optional, Any
 
 
-class QAMemoryEntry(TypedDict):
+class QAMemoryEntry(TypedDict): 
     round:      int
     persona:    str
     question:   str
