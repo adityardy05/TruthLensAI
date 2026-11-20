@@ -53,7 +53,9 @@ The Team A endpoint still returns the contract to its caller. If Team B is unava
   "version": "v2.0",
   "architecture_spec": "TruthLens v2.0",
   "faiss_loaded": true,
-  "tavily_configured": true
+  "searxng_configured": true,
+  "searxng_reachable": true,
+  "faiss_entries": 0
 }
 ```
 
@@ -137,3 +139,4 @@ data = response.json()
 for item in data["evidence"]:
     print(f"Domain: {item['source_domain']} | R(d) Score: {item['combined_reliability']}")
 ```
+

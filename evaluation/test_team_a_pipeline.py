@@ -1,27 +1,13 @@
 """
 ================================================================
-VERIFICATION SUITE: TEAM A PIPELINE (TruthLens v2.0)
+VERIFICATION SUITE: TEAM A PIPELINE (SearXNG architecture)
 ================================================================
 
-Tests Team A implementation against TruthLens v2.0 Architecture requirements:
-    1. Hybrid Domain Credibility Evaluator (3 Layers: Hardlist, MBFC, Dynamic Fallback)
-    2. Recency Scoring Function (s₄landmarks: <30d=1.0, <1yr=0.6, >5yr=0.1)
-    3. 4-Factor R(d) Evidence Reliability Scoring Formula:
-       R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
-    4. Inter-Team Data Contract Schema Compliance (Module A -> Module B)
-================================================================
-"""
-
-"""
-================================================================
-VERIFICATION SUITE: TEAM A PIPELINE (Unified Architecture)
-================================================================
-
-Tests the unified Team A retrieval implementation:
-    1. Hybrid Domain Credibility Evaluator
-    2. Recency Scoring
-    3. 4-Factor Evidence Reliability Scoring
-    4. Inter-Team Data Contract Schema
+Offline tests (no network, no model download) for:
+    1. Hybrid Domain Credibility Evaluator (3 layers)
+    2. Recency scoring
+    3. R(d) = 0.40*Relevance + 0.20*Quality + 0.25*Credibility + 0.15*Recency
+    4. Team A -> Team B data contract (process_claim output)
 ================================================================
 """
 
@@ -34,33 +20,37 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+from backend.core.config import RetrievalSettings
 from backend.rag.domain_credibility import HybridDomainCredibility
-from backend.rag.retriever import (
-    compute_recency_score,
-    TeamARetrievalPipeline,
-)
+from backend.rag.retriever import TeamARetrievalPipeline
+from backend.rag.scoring import compute_rd, compute_recency_score, score_chunks
+from backend.rag.searxng_client import SearchResponse
+from tests.fakes import FakeEmbedder
+
+
+class _NoStore:
+    available = False
+    count = 0
+
+
+class _NoSearch:
+    def search(self, query, language=None):
+        return SearchResponse()
+
+
+class _NoFetch:
+    def fetch_all(self, candidates):
+        return []
 
 
 class TestTeamAPipeline(unittest.TestCase):
 
     def setUp(self):
         self.domain_evaluator = HybridDomainCredibility()
-
-        index_path = os.path.join(
-            BASE_DIR,
-            "indexes",
-            "truthlens.faiss"
-        )
-
-        metadata_path = os.path.join(
-            BASE_DIR,
-            "indexes",
-            "metadata.pkl"
-        )
-
+        self.settings = RetrievalSettings()
         self.pipeline = TeamARetrievalPipeline(
-            index_path=index_path,
-            metadata_path=metadata_path
+            settings=self.settings, embedder=FakeEmbedder(), store=_NoStore(),
+            searxng=_NoSearch(), fetcher=_NoFetch(),
         )
 
     def test_layer1_hardlist(self):
@@ -107,6 +97,7 @@ class TestTeamAPipeline(unittest.TestCase):
         self.assertEqual(layer_spam, "dynamic_fallback")
         self.assertLess(score_spam, 0.35)
 
+
     def test_recency_scoring(self):
         """Test recency scoring milestones."""
 
@@ -142,119 +133,32 @@ class TestTeamAPipeline(unittest.TestCase):
 
         self.assertEqual(score_6yr, 0.10)
 
-    def test_4_factor_scoring_formula(self):
-        """Verify the 4-factor reliability formula."""
-
-        raw_evidence = [
-            {
-                "source_id": "test_1",
-                "source_url": "https://www.who.int/statement",
-                "title": "WHO statement on COVID remedies",
-                "text_snippet": (
-                    "Alcohol and whiskey do not cure COVID-19 "
-                    "according to medical experts."
-                ),
-                "published_date": "2026-08-01",
-                "author": "WHO Staff",
-            }
-        ]
-
-        claim = "Does whiskey cure COVID-19?"
-
-        scored = self.pipeline.score_and_rank_evidence(
-            claim,
-            raw_evidence,
-            top_k=1
-        )
-
-        self.assertEqual(len(scored), 1)
-
-        item = scored[0]
-
-        s1 = item["bm25_score"]
-        s2 = item["cosine_score"]
-        s3 = item["domain_credibility"]
-        s4 = item["recency_score"]
-
-        expected_rd = round(
-            0.25 * s1
-            + 0.25 * s2
-            + 0.25 * s3
-            + 0.25 * s4,
-            4
-        )
-
-        actual_rd = item["combined_reliability"]
-
-        self.assertAlmostEqual(
-            expected_rd,
-            actual_rd,
-            delta=0.001
-        )
+    def test_rd_formula_uses_agreed_weights(self):
+        """R(d) = 0.40*Relevance + 0.20*Quality + 0.25*Credibility + 0.15*Recency."""
+        chunk = {
+            "text": "Alcohol and whiskey do not cure COVID-19 according to medical experts. WHO said so.",
+            "url": "https://www.who.int/statement", "domain": "who.int", "evidence_type": "extracted",
+            "published_date": "2026-10-20", "cleanup_flags": [],
+        }
+        score_chunks("Does whiskey cure COVID-19?", [chunk], FakeEmbedder(), self.domain_evaluator, self.settings)
+        expected = round(
+            0.40 * chunk["relevance_score"] + 0.20 * chunk["quality_score"]
+            + 0.25 * chunk["domain_credibility"] + 0.15 * chunk["recency_score"], 4)
+        self.assertAlmostEqual(chunk["combined_reliability"], expected, delta=0.001)
+        self.assertAlmostEqual(compute_rd(1, 1, 1, 1, self.settings), 1.0, places=4)
+        self.assertAlmostEqual(compute_rd(0, 0, 0, 0, self.settings), 0.0, places=4)
 
     def test_inter_team_data_contract_schema(self):
-        """Verify the Team A output contract."""
-
-        claim = "Vaccines cause autism in children."
-
-        result = self.pipeline.process_claim(
-            claim,
-            original_language="en",
-            top_k=3
-        )
-
-        required_top_keys = [
-            "claim",
-            "original_language",
-            "normalized_claim",
-            "sub_claims",
-            "evidence",
-            "metadata",
-        ]
-
-        for key in required_top_keys:
-            self.assertIn(
-                key,
-                result,
-                f"Missing required top-level key '{key}'"
-            )
-
-        self.assertIsInstance(
-            result["evidence"],
-            list
-        )
-
-        self.assertIsInstance(
-            result["metadata"],
-            dict
-        )
-
-        if result["evidence"]:
-
-            evidence_item = result["evidence"][0]
-
-            required_evidence_keys = [
-                "source_domain",
-                "author",
-                "organization",
-                "content",
-                "url",
-                "bm25_score",
-                "cosine_score",
-                "domain_credibility",
-                "credibility_source",
-                "recency_score",
-                "combined_reliability",
-                "retrieval_rank",
-            ]
-
-            for e_key in required_evidence_keys:
-                self.assertIn(
-                    e_key,
-                    evidence_item,
-                    f"Missing evidence key '{e_key}'"
-                )
+        """Team A output contract, produced with all external services faked."""
+        result = self.pipeline.process_claim("Vaccines cause autism in children.", original_language="en", top_k=3)
+        for key in ["claim", "original_language", "normalized_claim", "sub_claims", "evidence", "metadata"]:
+            self.assertIn(key, result, f"Missing required top-level key '{key}'")
+        self.assertIsInstance(result["evidence"], list)
+        self.assertIsInstance(result["metadata"], dict)
+        self.assertEqual(result["evidence"], [])  # nothing retrievable -> honest empty result
+        self.assertTrue(result["metadata"]["insufficient_evidence"])
 
 
 if __name__ == "__main__":
     unittest.main()
+

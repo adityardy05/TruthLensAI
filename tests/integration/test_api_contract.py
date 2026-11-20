@@ -9,9 +9,9 @@ class FakeService:
 
 
 class FakeRetriever:
-    faiss_index = None
-    class scraper:
-        api_key = None
+    def health(self):
+        return {"faiss_loaded": True, "faiss_entries": 3, "embedder_available": True,
+                "searxng_configured": True, "searxng_reachable": True}
 
 
 def test_text_endpoint_contract():
@@ -29,4 +29,8 @@ def test_health_endpoint_contract():
     app.extensions["verification_service"] = FakeService()
     app.extensions["retriever"] = FakeRetriever()
     app.register_blueprint(api)
-    assert app.test_client().get("/api/v1/health").get_json()["status"] == "healthy"
+    body = app.test_client().get("/api/v1/health").get_json()
+    assert body["status"] == "healthy"
+    assert body["searxng_configured"] is True and body["faiss_entries"] == 3
+    assert "tavily_configured" not in body
+

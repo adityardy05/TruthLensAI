@@ -376,7 +376,7 @@ def _format_evidence(
         content = ev.get(
             "content",
             ""
-        )[:300]
+        )[:600]
 
         r_score = ev.get(
             "combined_reliability",

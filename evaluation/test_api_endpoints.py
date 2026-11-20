@@ -43,18 +43,16 @@ class TestUnifiedApiEndpoints(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.register_blueprint(api)
 
-        fake_scraper = type(
-            "FakeScraper",
-            (),
-            {"api_key": "test-key"}
-        )()
-
         fake_retriever = type(
             "FakeRetriever",
             (),
             {
-                "faiss_index": object(),
-                "scraper": fake_scraper
+                "health": lambda self: {
+                    "faiss_loaded": True,
+                    "faiss_entries": 0,
+                    "searxng_configured": True,
+                    "searxng_reachable": True,
+                }
             }
         )()
 
@@ -74,7 +72,8 @@ class TestUnifiedApiEndpoints(unittest.TestCase):
 
         self.assertEqual(data["status"], "healthy")
         self.assertTrue(data["faiss_loaded"])
-        self.assertTrue(data["tavily_configured"])
+        self.assertTrue(data["searxng_configured"])
+        self.assertNotIn("tavily_configured", data)
 
     def test_verify_endpoint(self):
         """Test POST /api/v1/verify."""
@@ -105,3 +104,4 @@ class TestUnifiedApiEndpoints(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

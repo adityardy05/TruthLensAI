@@ -1,732 +1,293 @@
+"""Evidence retrieval orchestrator (Team A).
+
+    claim -> queries -> FAISS cache lookup
+          -> best cosine >= threshold : reuse cached chunks
+          -> otherwise                : SearXNG -> hybrid rank -> Top 10 -> robots.txt -> fetch ->
+                                        Trafilatura (snippet fallback) -> chunk -> cleanup
+          -> de-duplicate -> R(d) -> Top 5 -> Team B
+
+The public interface is unchanged: ``TeamARetrievalPipeline.process_claim(claim, original_language,
+top_k)`` returns ``{claim, original_language, normalized_claim, sub_claims, evidence, metadata}``.
+Tavily is no longer used anywhere.
 """
-================================================================
-TEAM A: DATA INGESTION & RETRIEVAL ENGINE (TruthLens v2.0)
-================================================================
+from __future__ import annotations
 
-Implements Team A's Module A RAG Retrieval and 4-Factor Evidence Scoring:
-
-    Formula: R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
-
-    Where:
-        s₁ = BM25 Lexical Score (normalized [0, 1])
-        s₂ = Cosine Similarity (sentence-transformers all-MiniLM-L6-v2)
-        s₃ = Hybrid Domain Credibility (Hardlist → MBFC cache → Dynamic fallback)
-        s₄ = Recency Score (<30 days = 1.0, <1 yr = 0.6, >5 yrs = 0.1)
-
-Current runtime retrieval:
-    - FAISS Vector DB search over historical claims database
-    - Tavily live retrieval as a fallback when the best FAISS similarity is below the cache threshold
-    - Newly retrieved Tavily evidence is cached back into the FAISS index
-================================================================
-"""
-
-import os
-import sys
-import math
-import time
-import pickle
-import hashlib
 import logging
-import threading
-import tempfile
-import numpy as np
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+import time
+from typing import Any, Dict, List, Optional
 
-# Optional dependency fallbacks
-try:
-    import faiss
-    HAS_FAISS = True
-except ImportError:
-    faiss = None
-    HAS_FAISS = False
-
-try:
-    from rank_bm25 import BM25Okapi
-    HAS_BM25 = True
-except ImportError:
-    BM25Okapi = None
-    HAS_BM25 = False
-
-try:
-    from sentence_transformers import SentenceTransformer, util
-    HAS_ST = True
-except ImportError:
-    SentenceTransformer = None
-    util = None
-    HAS_ST = False
-
-# TF-IDF+SVD fallback (sklearn — always available)
-try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.decomposition import TruncatedSVD
-    from sklearn.preprocessing import normalize as sk_normalize
-    HAS_SKLEARN = True
-except ImportError:
-    HAS_SKLEARN = False
-
-# Add project root to path for imports
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
+from backend.core.config import RetrievalSettings, load_retrieval_settings
+from backend.rag.article_fetcher import ArticleFetcher
 from backend.rag.domain_credibility import HybridDomainCredibility
-from backend.rag.web_retriever import HybridScraper
+from backend.rag.embedding import MODEL_NAME, Embedder, MiniLMEmbedder
+from backend.rag.evidence_processing import build_chunks, dedupe_pool, prefilter_chunks
+from backend.rag.faiss_store import FaissEvidenceStore
+from backend.rag.query_builder import build_queries
+from backend.rag.scoring import compute_recency_score, score_chunks, select_top_k  # noqa: F401 (re-exported)
+from backend.rag.search_ranking import rank_search_results
+from backend.rag.searxng_client import SearXNGClient, SearXNGError, merge_duplicates
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
-
-def tavily_results_to_docs(tavily_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Convert Tavily or normalized web results into cache metadata documents."""
-    docs = []
-    for result in tavily_results:
-        content = result.get("content") or result.get("text_snippet") or result.get("snippet", "")
-        url = result.get("url") or result.get("source_url", "")
-        if not content or not str(content).strip() or not url:
-            continue
-
-        docs.append({
-            "text": str(content).strip(),
-            "cleaned_text": str(content).strip(),
-            "url": url,
-            "title": result.get("title", ""),
-            "statement": result.get("title", ""),
-            "origin": "tavily_cache",
-            "label": "unverified",
-            "tavily_score": float(result.get("score", result.get("retrieval_score", 0.0)) or 0.0),
-            "rd_score": None,
-            "cached_at": datetime.now(timezone.utc).isoformat(),
-        })
-    return docs
-
-# ================================================================
-# RECENCY SCORING ENGINE
-# s₄ = recency_score(pub_date)
-# Spec: <30 days = 1.0, <1 yr (365 days) = 0.6, >5 yrs (1825 days) = 0.1
-# ================================================================
-
-def compute_recency_score(publish_date_str: Optional[str]) -> float:
-    """
-    Computes recency score s₄ according to TruthLens v2.0 specification:
-      - < 30 days old     : 1.00
-      - < 365 days (1 yr) : Smooth decay 1.00 -> 0.60
-      - < 1825 days (5 yr): Smooth decay 0.60 -> 0.10
-      - > 1825 days (>5 yr): 0.10
-      - Undated / Unknown  : 0.50 (Neutral)
-    """
-    if not publish_date_str or str(publish_date_str).strip() in ("No Date", "None", ""):
-        return 0.50
-
-    formats = [
-        "%Y-%m-%d",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%SZ",
-        "%Y-%m-%dT%H:%M:%S.%fZ",
-        "%d/%m/%Y",
-        "%d-%m-%Y",
-        "%B %d, %Y",
-        "%b %d, %Y",
-    ]
-
-    pub_date = None
-    date_clean = str(publish_date_str).strip()
-    for fmt in formats:
-        try:
-            pub_date = datetime.strptime(date_clean, fmt)
-            break
-        except ValueError:
-            continue
-
-    if pub_date is None:
-        # Try extracting standard ISO date YYYY-MM-DD via regex
-        import re
-        match = re.search(r'\d{4}-\d{2}-\d{2}', date_clean)
-        if match:
-            try:
-                pub_date = datetime.strptime(match.group(0), "%Y-%m-%d")
-            except ValueError:
-                return 0.50
-        else:
-            return 0.50
-
-    now = datetime.now()
-    age_days = max((now - pub_date).days, 0)
-
-    if age_days <= 30:
-        return 1.00
-    elif age_days <= 365:
-        # Linear interpolation from 1.00 (day 30) to 0.60 (day 365)
-        return round(1.00 - (0.40 * (age_days - 30) / (365 - 30)), 4)
-    elif age_days <= 1825:
-        # Linear interpolation from 0.60 (day 365) to 0.10 (day 1825)
-        return round(0.60 - (0.50 * (age_days - 365) / (1825 - 365)), 4)
-    else:
-        return 0.10
-
-# ================================================================
-# TEAM A RETRIEVAL PIPELINE CLASS
-# ================================================================
 
 class TeamARetrievalPipeline:
-    """
-    Module A: Data Ingestion & Retrieval Pipeline for Team A.
-    Executes live web search + FAISS retrieval and scores evidence using the 4-factor formula:
-        R(d) = 0.25·BM25 + 0.25·cosine + 0.25·domain + 0.25·recency
-    """
-
     def __init__(
         self,
-        index_path: Optional[str] = None,
-        metadata_path: Optional[str] = None,
-        model_name: str = "all-MiniLM-L6-v2",
-        tavily_api_key: Optional[str] = None
+        index_path=None,
+        metadata_path=None,
+        model_name: str = MODEL_NAME,
+        *,
+        settings: Optional[RetrievalSettings] = None,
+        embedder: Optional[Embedder] = None,
+        store: Optional[FaissEvidenceStore] = None,
+        searxng: Optional[SearXNGClient] = None,
+        fetcher: Optional[ArticleFetcher] = None,
+        domain_evaluator: Optional[HybridDomainCredibility] = None,
     ):
-        if HAS_ST:
-            print(f"[TeamA Engine] Initializing Sentence Transformer: '{model_name}'...")
-            self.embedding_model = SentenceTransformer(model_name)
-            self.tfidf_svd_model = None
-        else:
-            print("[TeamA Engine] SentenceTransformer not available; loading TF-IDF+SVD fallback...")
-            self.embedding_model = None
-            self.tfidf_svd_model = None
-            # Try to load pre-built TF-IDF+SVD model
-            _tfidf_path = os.path.join(BASE_DIR, "data", "tfidf_svd_model.pkl")
-            if HAS_SKLEARN and os.path.exists(_tfidf_path):
-                try:
-                    with open(_tfidf_path, "rb") as _f:
-                        self.tfidf_svd_model = pickle.load(_f)
-                    print(f"[TeamA Engine] Loaded TF-IDF+SVD model from: {_tfidf_path}")
-                except Exception as _e:
-                    print(f"[TeamA Engine] Warning: Could not load TF-IDF+SVD model: {_e}")
-            else:
-                print("[TeamA Engine] No TF-IDF+SVD model found. FAISS search will be skipped.")
+        self.settings = settings or load_retrieval_settings()
+        s = self.settings
+        self.embedder = embedder if embedder is not None else MiniLMEmbedder(model_name)
+        self.store = store if store is not None else FaissEvidenceStore(
+            index_path, metadata_path, self.embedder, model_name=model_name, ttl_days=s.faiss_cache_ttl_days)
+        self.searxng = searxng or SearXNGClient(
+            s.searxng_base_url, timeout=s.searxng_timeout_seconds, categories=s.searxng_categories,
+            max_pages=s.searxng_max_pages, results_per_query=s.searxng_results_per_query,
+            user_agent=s.crawler_user_agent)
+        self.fetcher = fetcher or ArticleFetcher(s)
+        self.domain_evaluator = domain_evaluator or HybridDomainCredibility()
 
-        self.domain_evaluator = HybridDomainCredibility()
-
-        # Initialize Web Scraper (Tavily + Trafilatura)
-        self.scraper = HybridScraper(api_key=tavily_api_key)
-
-        # Initialize FAISS & BM25 local corpus if present
-        self.faiss_index = None
-        self.metadata = []
-        self.bm25_index = None
-        self.index_path = index_path
-        self.metadata_path = metadata_path
-        self._index_lock = threading.RLock()
-        self._ingested_hashes = set()
-        self._cached_query_hashes = set()
-
-        if HAS_FAISS and index_path and metadata_path and os.path.exists(index_path) and os.path.exists(metadata_path):
-            try:
-                print(f"[TeamA Engine] Loading FAISS index: {index_path}")
-                self.faiss_index = faiss.read_index(index_path)
-
-                print(f"[TeamA Engine] Loading FAISS metadata: {metadata_path}")
-                with open(metadata_path, "rb") as f:
-                    self.metadata = pickle.load(f)
-
-                for doc in self.metadata:
-                    if doc.get("url"):
-                        self._ingested_hashes.add(self._content_hash(doc["url"]))
-                    text = doc.get("text") or doc.get("cleaned_text") or doc.get("statement")
-                    if text:
-                        self._ingested_hashes.add(self._content_hash(text))
-                    if doc.get("query_hash"):
-                        self._cached_query_hashes.add(doc["query_hash"])
-
-                if HAS_BM25:
-                    tokenized_corpus = []
-                    for doc in self.metadata:
-                        text = doc.get("cleaned_text") or doc.get("statement", "")
-                        tokenized_corpus.append(str(text).lower().split())
-                    self.bm25_index = BM25Okapi(tokenized_corpus)
-                    print(f"[TeamA Engine] Built BM25 index over {len(self.metadata)} historical documents.")
-            except Exception as e:
-                print(f"[TeamA Engine] Warning: Failed to load FAISS index or metadata: {e}")
-
+    # ------------------------------------------------------------- utilities
     def generate_sub_claims(self, claim: str) -> List[str]:
-        """
-        Decomposes the main claim into heuristic sub-claims for targeted search & verification.
-        """
+        """Heuristic sub-claims (informational only; search uses the whole claim)."""
         claim_clean = claim.strip()
         sub_claims = [claim_clean]
-
-        # Generate simple sub-queries if multi-word claim
         words = claim_clean.split()
         if len(words) > 6:
-            # Generate key phrase sub-claim
-            sub_claims.append(" ".join(words[:len(words)//2]))
-            sub_claims.append(" ".join(words[len(words)//2:]))
+            sub_claims.append(" ".join(words[: len(words) // 2]))
+            sub_claims.append(" ".join(words[len(words) // 2:]))
+        return list(dict.fromkeys(sub_claims))
 
-        return list(dict.fromkeys(sub_claims))  # Preserve unique order
-
-    def retrieve_live_web(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """
-        Retrieves live web evidence using Tavily API with Trafilatura fallback.
-        """
-        try:
-            if not self.scraper.api_key:
-                print("[TeamA Engine] Tavily API key not set. Skipping live web retrieval.")
-                return []
-            results = self.scraper.search_and_extract(query=query, max_results=max_results)
-            if results:
-                try:
-                    summary = self.cache_tavily_results(results, query=query)
-                    log.info(
-                        "Tavily cache: cached=%s skipped=%s failed=%s",
-                        summary["cached"], summary["skipped"], summary["failed"],
-                    )
-                except Exception as e:
-                    log.warning("Tavily cache failed (non-fatal): %s", e)
-            return results
-        except Exception as e:
-            print(f"[TeamA Engine] Live web retrieval error: {e}")
-            return []
-
-    @staticmethod
-    def _content_hash(value: str) -> str:
-        return hashlib.md5(value.encode("utf-8")).hexdigest()
-
-    @classmethod
-    def _query_hash(cls, query: str) -> str:
-        normalized = " ".join(query.casefold().split())
-        return cls._content_hash(f"tavily-query:{normalized}")
-
-    def _persist_cache(self) -> None:
-        """Persist the index and metadata through same-directory temporary files."""
-        if not self.index_path or not self.metadata_path:
-            raise ValueError("FAISS index and metadata paths are required for caching")
-
-        index_dir = os.path.dirname(os.path.abspath(self.index_path))
-        metadata_dir = os.path.dirname(os.path.abspath(self.metadata_path))
-        os.makedirs(index_dir, exist_ok=True)
-        os.makedirs(metadata_dir, exist_ok=True)
-
-        index_tmp = None
-        metadata_tmp = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=index_dir, suffix=".faiss.tmp", delete=False) as file:
-                index_tmp = file.name
-            with tempfile.NamedTemporaryFile(dir=metadata_dir, suffix=".pkl.tmp", delete=False) as file:
-                metadata_tmp = file.name
-
-            faiss.write_index(self.faiss_index, index_tmp)
-            with open(metadata_tmp, "wb") as file:
-                pickle.dump(self.metadata, file)
-            os.replace(index_tmp, self.index_path)
-            os.replace(metadata_tmp, self.metadata_path)
-        finally:
-            for temp_path in (index_tmp, metadata_tmp):
-                if temp_path and os.path.exists(temp_path):
-                    os.unlink(temp_path)
-
-    def cache_tavily_results(
-        self,
-        tavily_results: List[Dict[str, Any]],
-        query: Optional[str] = None,
-    ) -> Dict[str, int]:
-        """Best-effort cache of normalized Tavily evidence into the loaded FAISS index."""
-        if not tavily_results:
-            return {"cached": 0, "skipped": 0, "failed": 0}
-
-        docs = tavily_results_to_docs(tavily_results)
-        if not docs:
-            return {"cached": 0, "skipped": len(tavily_results), "failed": 0}
-        if self.faiss_index is None:
-            return {"cached": 0, "skipped": len(docs), "failed": len(docs)}
-
-        new_docs = []
-        new_hashes = []
-        pending_hashes = set()
-        query_hash = self._query_hash(query) if query else None
-        skipped = len(tavily_results) - len(docs)
-        for doc in docs:
-            url_hash = self._content_hash(doc["url"])
-            content_hash = self._content_hash(doc["text"])
-            if (
-                url_hash in self._ingested_hashes
-                or content_hash in self._ingested_hashes
-                or url_hash in pending_hashes
-                or content_hash in pending_hashes
-            ):
-                skipped += 1
-                continue
-            new_docs.append(doc)
-            new_hashes.append((url_hash, content_hash))
-            pending_hashes.update((url_hash, content_hash))
-
-        if not new_docs:
-            if query_hash and self.faiss_index is not None:
-                result_hashes = {
-                    self._content_hash(doc["url"])
-                    for doc in docs
-                    if doc.get("url")
-                }
-                result_hashes.update(
-                    self._content_hash(doc["text"])
-                    for doc in docs
-                    if doc.get("text")
-                )
-                marked = False
-                with self._index_lock:
-                    for doc in self.metadata:
-                        doc_hashes = set()
-                        if doc.get("url"):
-                            doc_hashes.add(self._content_hash(doc["url"]))
-                        text = doc.get("text") or doc.get("cleaned_text") or doc.get("statement")
-                        if text:
-                            doc_hashes.add(self._content_hash(text))
-                        if doc_hashes.intersection(result_hashes) and doc.get("query_hash") != query_hash:
-                            doc["query_hash"] = query_hash
-                            marked = True
-                    if marked:
-                        self._cached_query_hashes.add(query_hash)
-                        self._persist_cache()
-            return {"cached": 0, "skipped": skipped, "failed": 0}
-
-        texts = [doc["text"] for doc in new_docs]
-        if self.embedding_model is not None:
-            vectors = self.embedding_model.encode(texts, convert_to_numpy=True).astype("float32")
-            faiss.normalize_L2(vectors)
-        elif self.tfidf_svd_model is not None:
-            tfidf = self.tfidf_svd_model["tfidf"]
-            svd = self.tfidf_svd_model["svd"]
-            vectors = sk_normalize(svd.transform(tfidf.transform(texts)).astype("float32"), norm="l2")
-        else:
-            return {"cached": 0, "skipped": skipped, "failed": len(new_docs)}
-
-        cached = 0
-        failed = 0
-        with self._index_lock:
-            for doc, vector, (url_hash, content_hash) in zip(new_docs, vectors, new_hashes):
-                start_id = self.faiss_index.ntotal
-                try:
-                    if query_hash:
-                        doc["query_hash"] = query_hash
-                    doc["faiss_id"] = start_id
-                    self.faiss_index.add(vector.reshape(1, -1))
-                    self.metadata.append(doc)
-                    self._persist_cache()
-                    self._ingested_hashes.update((url_hash, content_hash))
-                    if query_hash:
-                        self._cached_query_hashes.add(query_hash)
-                    cached += 1
-                except Exception as error:
-                    log.warning("Failed to cache Tavily result [%s]: %s", start_id, error)
-                    failed += 1
-                    log.error("FAISS/metadata mismatch possible after failed cache persistence")
-
-        return {"cached": cached, "skipped": skipped, "failed": failed}
-
-    def _encode_query(self, query: str) -> Optional[np.ndarray]:
-        """
-        Encodes a query string into a 384-dim vector.
-        Uses sentence-transformers if available, else TF-IDF+SVD fallback.
-        """
-        if self.embedding_model is not None:
-            vec = np.array(self.embedding_model.encode([query])).astype("float32")
-            faiss.normalize_L2(vec)
-            return vec
-        elif self.tfidf_svd_model is not None:
-            tfidf = self.tfidf_svd_model["tfidf"]
-            svd   = self.tfidf_svd_model["svd"]
-            sparse = tfidf.transform([query])
-            dense  = svd.transform(sparse).astype("float32")
-            vec    = sk_normalize(dense, norm="l2")
-            return vec
-        return None
-
-    def retrieve_faiss(self, query: str, top_n: int = 10) -> List[Dict[str, Any]]:
-        """
-        Retrieves historical claim evidence from FAISS vector store.
-        Uses sentence-transformers or TF-IDF+SVD fallback for query encoding.
-        """
-        if not self.faiss_index or not self.metadata:
-            return []
-
-        try:
-            query_emb = self._encode_query(query)
-            if query_emb is None:
-                print("[TeamA Engine] No query encoder available. Skipping FAISS search.")
-                return []
-            distances, indices = self.faiss_index.search(query_emb, top_n)
-
-            faiss_results = []
-            for idx, dist in zip(indices[0], distances[0]):
-                if idx == -1 or idx >= len(self.metadata):
-                    continue
-                doc = self.metadata[idx]
-                faiss_results.append({
-                    "source_id": f"faiss_{idx}",
-                    "retrieval_score": float(dist),
-                    "source_url": doc.get("url", "http://liar-dataset.internal"),
-                    "title": doc.get("title") or doc.get("statement", "")[:80],
-                    "source_type": "faiss_cache" if doc.get("origin") == "tavily_cache" else "faiss_dataset",
-                    "text_snippet": doc.get("text") or doc.get("cleaned_text") or doc.get("statement", ""),
-                    "published_date": doc.get("publish_date") or doc.get("context", ""),
-                    "author": doc.get("speaker", "Unknown Speaker"),
-                    "organization": doc.get("job_title", "Dataset Record"),
-                    "origin": doc.get("origin", "liar_dataset"),
-                    "label": doc.get("label"),
-                    "tavily_score": doc.get("tavily_score"),
-                    "rd_score": doc.get("rd_score"),
-                    "cached_at": doc.get("cached_at"),
-                })
-            return faiss_results
-        except Exception as e:
-            print(f"[TeamA Engine] FAISS search error: {e}")
-            return []
-
-    @staticmethod
-    def _has_sufficient_faiss_evidence(
-        evidence: List[Dict[str, Any]]
-    ) -> bool:
-        """
-        Decide whether FAISS evidence is semantically similar enough to
-        avoid a live Tavily lookup.
-
-        The decision is based ONLY on the best FAISS similarity score.
-        Whether a document came from the original dataset or from the
-        Tavily cache does not affect this decision.
-        """
-        threshold = float(
-            os.getenv("TAVILY_CACHE_SIMILARITY_THRESHOLD", "0.75")
-        )
-        return max(
-            (
-                float(item.get("retrieval_score", 0.0) or 0.0)
-                for item in evidence
-            ),
-            default=0.0,
-        ) >= threshold
-
-    def score_and_rank_evidence(
-        self,
-        claim: str,
-        raw_evidence: List[Dict[str, Any]],
-        top_k: int = 10
-    ) -> List[Dict[str, Any]]:
-        """
-        Applies the 4-factor scoring formula R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄ to raw evidence items.
-
-        Returns top_k items sorted by combined_reliability R(d) descending.
-        """
-        if not raw_evidence:
-            return []
-
-        snippets = [item.get("text_snippet", "") for item in raw_evidence]
-        tokenized_snippets = [str(s).lower().split() for s in snippets]
-        claim_tokens = set(claim.lower().split())
-
-        # 1. s₁: BM25 Lexical Score (with word-overlap fallback)
-        if HAS_BM25 and len(tokenized_snippets) > 0:
-            bm25_engine = BM25Okapi(tokenized_snippets)
-            bm25_raw_scores = bm25_engine.get_scores(claim.lower().split())
-            max_bm25 = np.max(bm25_raw_scores) if len(bm25_raw_scores) > 0 and np.max(bm25_raw_scores) > 0 else 1.0
-            bm25_norm_scores = [round(float(score / max_bm25), 4) for score in bm25_raw_scores]
-        else:
-            # Fallback word overlap ratio
-            bm25_norm_scores = []
-            for snip_tokens in tokenized_snippets:
-                snip_set = set(snip_tokens)
-                overlap = len(claim_tokens.intersection(snip_set))
-                ratio = overlap / len(claim_tokens) if claim_tokens else 0.0
-                bm25_norm_scores.append(round(min(ratio * 1.5, 1.0), 4))
-
-        # 2. s₂: Cosine Similarity Score (with Jaccard similarity fallback)
-        if HAS_ST and self.embedding_model is not None:
-            claim_embedding = self.embedding_model.encode(claim, convert_to_tensor=True)
-            snippet_embeddings = self.embedding_model.encode(snippets, convert_to_tensor=True)
-            cosine_sims = util.cos_sim(claim_embedding, snippet_embeddings)[0].tolist()
-            cosine_norm_scores = [round(max(float(sim), 0.0), 4) for sim in cosine_sims]
-        else:
-            # Fallback Jaccard index
-            cosine_norm_scores = []
-            for snip_tokens in tokenized_snippets:
-                snip_set = set(snip_tokens)
-                union_len = len(claim_tokens.union(snip_set))
-                inter_len = len(claim_tokens.intersection(snip_set))
-                jaccard = inter_len / union_len if union_len > 0 else 0.0
-                cosine_norm_scores.append(round(min(jaccard * 2.0, 1.0), 4))
-
-        processed_evidence = []
-        for idx, item in enumerate(raw_evidence):
-            url = item.get("source_url", "")
-            domain = self.domain_evaluator.extract_domain(url) or "unknown"
-
-            # 3. s₃: Domain Credibility Score (Hybrid: Hardlist -> MBFC -> Dynamic)
-            domain_cred, cred_source = self.domain_evaluator.evaluate(url)
-
-            # 4. s₄: Recency Score
-            pub_date = item.get("published_date")
-            recency_score = compute_recency_score(pub_date)
-
-            s1 = bm25_norm_scores[idx]
-            s2 = cosine_norm_scores[idx]
-            s3 = round(domain_cred, 4)
-            s4 = recency_score
-
-            # Combined Reliability: R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
-            combined_reliability = round(0.25 * s1 + 0.25 * s2 + 0.25 * s3 + 0.25 * s4, 4)
-
-            # Extract author / organization
-            author = item.get("author") or self._extract_author(item)
-            org = item.get("organization") or domain.split(".")[0].upper()
-
-            processed_evidence.append({
-                "source_domain": domain,
-                "author": author,
-                "organization": org,
-                "content": item.get("text_snippet", ""),
-                "url": url,
-                    "source_type": item.get("source_type", "unknown"),
-                "bm25_score": s1,
-                "cosine_score": s2,
-                "domain_credibility": s3,
-                "credibility_source": cred_source,
-                "recency_score": s4,
-                "combined_reliability": combined_reliability,
-                "origin": item.get("origin", "web"),
-                "label": item.get("label"),
-                "tavily_score": item.get("tavily_score", item.get("retrieval_score")),
-                "rd_score": s3,
-                "cached_at": item.get("cached_at"),
-                "retrieval_rank": 0  # To be set after sorting
-            })
-
-        # Sort by combined_reliability descending
-        processed_evidence.sort(key=lambda x: x["combined_reliability"], reverse=True)
-
-        # Truncate to top_k and assign retrieval_rank
-        top_evidence = processed_evidence[:top_k]
-        for rank, item in enumerate(top_evidence, start=1):
-            item["retrieval_rank"] = rank
-
-        return top_evidence
-
-    def _extract_author(self, item: Dict[str, Any]) -> str:
-        domain = self.domain_evaluator.extract_domain(item.get("source_url", ""))
-        if "who.int" in domain:
-            return "World Health Organization"
-        elif "reuters" in domain:
-            return "Reuters Staff"
-        elif "apnews" in domain:
-            return "Associated Press"
-        elif "bbc" in domain:
-            return "BBC News"
-        elif "factcheck" in domain:
-            return "FactCheck.org Staff"
-        elif "snopes" in domain:
-            return "Snopes Fact Checker"
-        return "Editorial Team"
-
-    def process_claim(
-        self,
-        claim: str,
-        original_language: str = "en",
-        top_k: int = 10
-    ) -> Dict[str, Any]:
-        """
-        Executes full Module A pipeline:
-          1. Sub-claim decomposition
-          2. FAISS retrieval
-          3. Use the best FAISS similarity to decide whether Tavily is needed
-          4. If best similarity < 0.75, retrieve fresh Tavily evidence;
-             retrieve_live_web() caches those results into FAISS
-          5. 4-factor scoring R(d) = 0.25·s₁ + 0.25·s₂ + 0.25·s₃ + 0.25·s₄
-          6. Adheres strictly to Module A -> Module B Inter-Team Data Contract.
-
-        Important: the 0.75 FAISS similarity threshold only controls the
-        Tavily trigger. The R(d) >= 0.70 threshold used elsewhere in the
-        pipeline remains a separate evidence-quality/routing decision.
-        """
-        start_time = time.time()
-
-        normalized_claim = claim.strip()
-        sub_claims = self.generate_sub_claims(normalized_claim)
-
-        # 1. Search the FAISS index first.
-        raw_faiss_evidence = self.retrieve_faiss(
-            normalized_claim,
-            top_n=top_k * 2
-        )
-
-        # 2. Trigger Tavily only when the best FAISS similarity is below
-        #    the dedicated retrieval threshold. This intentionally does
-        #    not inspect the evidence origin.
-        raw_web_evidence = []
-        if not self._has_sufficient_faiss_evidence(raw_faiss_evidence):
-            raw_web_evidence = self.retrieve_live_web(
-                normalized_claim,
-                max_results=top_k * 2
-            )
-
-        # retrieve_live_web() already caches successful Tavily results into
-        # FAISS. Keep both fresh web results and FAISS results for scoring.
-        raw_all = raw_faiss_evidence + raw_web_evidence
-
-        # Deduplicate evidence by content/URL
-        seen_urls = set()
-        unique_raw = []
-        for item in raw_all:
-            u = item.get("source_url", "")
-            if u not in seen_urls:
-                seen_urls.add(u)
-                unique_raw.append(item)
-
-        # 3. Apply 4-Factor R(d) Scoring & Ranking
-        scored_evidence = self.score_and_rank_evidence(
-            claim=normalized_claim,
-            raw_evidence=unique_raw,
-            top_k=top_k
-        )
-
-        # Tavily results are cached into FAISS by retrieve_live_web() before
-        # returning. Therefore a later request can reuse the newly indexed
-        # evidence without another Tavily call when its similarity is >= 0.75.
-        elapsed_ms = int((time.time() - start_time) * 1000)
-        top_domain = scored_evidence[0]["source_domain"] if scored_evidence else "N/A"
-
-        # 4. Format exact Inter-Team Data Contract JSON (Module A -> Module B)
-        output_contract = {
-            "claim": normalized_claim,
-            "original_language": original_language,
-            "normalized_claim": normalized_claim,
-            "sub_claims": sub_claims,
-            "evidence": scored_evidence,
-            "metadata": {
-                "retrieval_time_ms": elapsed_ms,
-                "num_sources_total": len(unique_raw),
-                "num_sources_kept": len(scored_evidence),
-                "num_live_web_sources": sum(
-                    1
-                    for item in scored_evidence
-                    if item.get("source_type") == "web"
-                ),
-                "top_source_domain": top_domain
-            }
+    def health(self) -> Dict[str, Any]:
+        return {
+            "faiss_loaded": bool(self.store.available),
+            "faiss_entries": self.store.count if self.store.available else 0,
+            "embedder_available": bool(self.embedder is not None and self.embedder.available),
+            "searxng_configured": bool(self.settings.searxng_base_url),
+            "searxng_reachable": self.searxng.is_reachable(),
         }
 
-        return output_contract
+    def _cred(self, url: str) -> float:
+        try:
+            return float(self.domain_evaluator.evaluate(url)[0])
+        except Exception:
+            return 0.5
 
-# ── Alias for backward compatibility ────────────────────────────
+    def _embed_query(self, query_text: str, meta: dict):
+        if self.embedder is None or not self.embedder.available:
+            meta["degraded"].append("embedder_unavailable")
+            return None
+        try:
+            return self.embedder.encode([query_text])[0]
+        except Exception as exc:  # EmbeddingError or anything unexpected: skip the cache, still search the web
+            logger.error("Query embedding failed, cache lookup skipped: %s", exc)
+            meta["degraded"].append("embedder_unavailable")
+            return None
+
+    def _expand_hits(self, hits: List[dict], min_anchor_similarity: float) -> List[dict]:
+        """Chunk hits plus the chunks linked from matching query anchors (de-duplicated)."""
+        chunks = [h for h in hits if h.get("kind", "chunk") == "chunk"]
+        seen = {h["faiss_id"] for h in chunks}
+        keys: List[str] = []
+        for h in hits:
+            if h.get("kind") == "query" and h["embedding_similarity"] >= min_anchor_similarity:
+                keys.extend(h.get("chunk_keys", []))
+        for linked in self.store.get_chunks_by_keys(keys):
+            if linked["faiss_id"] not in seen:
+                seen.add(linked["faiss_id"])
+                chunks.append(linked)
+        return chunks
+
+    @staticmethod
+    def _hit_to_chunk(hit: dict, rank: int) -> dict:
+        try:
+            index = int(str(hit.get("chunk_id", "")).rsplit(":", 1)[-1])
+        except ValueError:
+            index = 0
+        return {
+            "article_id": hit.get("article_id") or hit.get("url"), "url": hit["url"], "final_url": hit["url"],
+            "domain": hit.get("domain"), "title": hit.get("title") or "", "text": hit["text"],
+            "published_date": hit.get("published_date"), "date_source": hit.get("date_source") or "none",
+            "author": hit.get("author"), "robots_allowed": None, "access_status": "CACHED",
+            "fetch_status": "CACHED", "extraction_status": "OK",
+            "extraction_method": hit.get("extraction_method") or "trafilatura", "evidence_type": "extracted",
+            "retrieval_rank": rank, "search_relevance": None, "search_query": hit.get("search_query"),
+            "search_engines": [], "origin": "faiss_cache", "source_type": "faiss_cache",
+            "embedding_similarity": hit.get("embedding_similarity"), "chunk_id": hit.get("chunk_id") or f"{hit['url']}:{index}",
+            "chunk_index": index, "cleanup_flags": [], "removed_chars": 0, "cached_at": hit.get("cached_at"),
+            "content_hash": hit.get("content_hash"), "source_records": hit.get("source_records", []),
+            "last_seen_at": hit.get("last_seen_at"),
+        }
+
+    @staticmethod
+    def _to_evidence(c: dict) -> dict:
+        return {
+            "source_id": c["chunk_id"], "source_domain": c["domain"], "source_title": c["title"], "url": c["url"],
+            "content_hash": c.get("content_hash"), "source_records": c.get("source_records", []),
+            "content": c["text"], "published_date": c.get("published_date"), "date_source": c.get("date_source"),
+            "source_type": c["source_type"], "origin": c["origin"], "evidence_type": c["evidence_type"],
+            "extraction_method": c["extraction_method"], "access_status": c["access_status"],
+            "fetch_status": c["fetch_status"], "extraction_status": c["extraction_status"],
+            "robots_allowed": c["robots_allowed"],
+            "bm25_score": c["bm25_score"], "cosine_score": c["cosine_score"],
+            "relevance_score": c["relevance_score"], "quality_score": c["quality_score"],
+            "domain_credibility": c["domain_credibility"], "credibility_source": c["credibility_source"],
+            "recency_score": c["recency_score"], "combined_reliability": c["combined_reliability"],
+            "retrieval_rank": c["retrieval_rank"], "article_id": c["article_id"], "chunk_id": c["chunk_id"],
+            "syndication_group_id": c["syndication_group_id"], "origin_url": c["origin_url"],
+            "is_syndicated_copy": c["is_syndicated_copy"], "also_published_by": c.get("also_published_by", []),
+            "cleanup_flags": c.get("cleanup_flags", []), "search_query": c.get("search_query"),
+            "search_engines": c.get("search_engines", []), "author": c.get("author"), "cached_at": c.get("cached_at"),
+        }
+
+    # --------------------------------------------------------------- web path
+    def _web_chunks(self, query_text: str, queries: List[str], language: str, meta: dict) -> List[dict]:
+        s = self.settings
+        t = time.perf_counter()
+        results: List[dict] = []
+        for q in queries:
+            try:
+                resp = self.searxng.search(q, language)
+            except SearXNGError as exc:
+                logger.warning("SearXNG search failed for %r: %s", q, exc)
+                meta["searxng_errors"].append({"query": q, "kind": exc.kind})
+                continue
+            except Exception as exc:  # never let a search client bug take the claim down
+                logger.exception("Unexpected SearXNG error for %r", q)
+                meta["searxng_errors"].append({"query": q, "kind": f"unexpected:{type(exc).__name__}"})
+                continue
+            results.extend(resp.results)
+            meta["unresponsive_engines"].extend([list(p) for p in resp.unresponsive_engines])
+        merged = merge_duplicates(results)
+        meta["raw_results"] = len(merged)
+        meta["stage_timings_ms"]["search"] = round((time.perf_counter() - t) * 1000)
+        if not merged:
+            return []
+
+        t = time.perf_counter()
+        selected, _, degraded = rank_search_results(
+            query_text, merged, self.embedder, w_emb=s.search_weight_embedding, w_bm25=s.search_weight_bm25,
+            top_n=s.search_top_n, max_per_domain=s.max_per_domain_search)
+        meta["degraded"].extend(degraded)
+        meta["search_ranked"] = len(selected)
+        meta["stage_timings_ms"]["search_ranking"] = round((time.perf_counter() - t) * 1000)
+
+        t = time.perf_counter()
+        articles = self.fetcher.fetch_all(selected)
+        meta["fetched_extracted"] = sum(1 for a in articles if a["evidence_type"] == "extracted")
+        meta["snippet_fallbacks"] = len(articles) - meta["fetched_extracted"]
+        meta["stage_timings_ms"]["fetch"] = round((time.perf_counter() - t) * 1000)
+
+        chunks: List[dict] = []
+        for article in articles:
+            chunks.extend(build_chunks(article, s))
+        return prefilter_chunks(query_text, chunks, s)
+
+    # ------------------------------------------------------------ main entry
+    def process_claim(self, claim: str, original_language: str = "en", top_k: Optional[int] = None,
+                      original_claim: Optional[str] = None) -> Dict[str, Any]:
+        started = time.perf_counter()
+        s = self.settings
+        k = max(1, int(top_k)) if top_k else s.evidence_top_k
+        normalized_claim = (claim or "").strip()
+        sub_claims = self.generate_sub_claims(normalized_claim)
+        queries = build_queries(normalized_claim, original_claim, original_language,
+                                s.searxng_max_queries, s.max_query_chars)
+        query_text = queries[0] if queries else normalized_claim[: s.max_query_chars]
+        meta: Dict[str, Any] = {
+            "route": None, "queries": queries, "faiss_threshold": s.faiss_similarity_threshold,
+            "best_faiss_similarity": 0.0, "searxng_errors": [], "unresponsive_engines": [], "degraded": [],
+            "raw_results": 0, "search_ranked": 0, "fetched_extracted": 0, "snippet_fallbacks": 0,
+            "cached_chunks_added": 0, "stage_timings_ms": {},
+        }
+
+        t = time.perf_counter()
+        qvec = self._embed_query(query_text, meta) if (query_text and self.store.available) else None
+        hits: List[dict] = self.store.search(qvec, s.faiss_search_top_n) if qvec is not None else []
+        best_hit = max(hits, key=lambda h: h["embedding_similarity"], default=None)
+        best = best_hit["embedding_similarity"] if best_hit else 0.0
+        meta["best_faiss_similarity"] = round(best, 4)
+        meta["best_match_kind"] = best_hit.get("kind", "chunk") if best_hit else None
+        meta["faiss_entries"] = self.store.count if self.store.available else 0
+        meta["stage_timings_ms"]["faiss"] = round((time.perf_counter() - t) * 1000)
+
+        pool: List[dict] = []
+        cached_chunks = [
+            self._hit_to_chunk(hit, i + 1)
+            for i, hit in enumerate(self._expand_hits(hits, s.faiss_similarity_threshold))
+        ]
+        fresh_cached_chunks = [
+            chunk for chunk in cached_chunks
+            if compute_recency_score(chunk.get("published_date"), s.undated_recency_score)
+            >= s.faiss_min_recency_score
+        ]
+        meta["fresh_cached_chunks"] = len(fresh_cached_chunks)
+        meta["faiss_min_recency_score"] = s.faiss_min_recency_score
+        # The cache must be able to satisfy the requested evidence count; otherwise
+        # search live rather than silently returning a partial cached set.
+        cache_sufficient = len(fresh_cached_chunks) >= k
+        meta["faiss_cache_sufficient"] = cache_sufficient
+
+        if hits and best >= s.faiss_similarity_threshold and cache_sufficient:
+            meta["route"] = "faiss"
+            pool = fresh_cached_chunks
+        else:
+            # Permanent evidence is retained, but stale or undated evidence never suppresses
+            # a fresh SearXNG lookup. It remains a fallback if live search yields nothing.
+            meta["route"] = "searxng"
+            if query_text:
+                pool = self._web_chunks(query_text, queries, original_language, meta)
+            if not pool and cached_chunks:
+                meta["route"] = "faiss_fallback"
+                pool = cached_chunks
+
+        t = time.perf_counter()
+        pool, dstats = dedupe_pool(
+            pool, cred_fn=self._cred, near_jaccard=s.near_duplicate_jaccard,
+            syndication_containment=s.syndication_containment)
+        meta["dedupe"] = dstats
+        meta["degraded"].extend(score_chunks(query_text, pool, self.embedder, self.domain_evaluator, s))
+        selected, info = select_top_k(pool, s, k)
+        meta["stage_timings_ms"]["process_and_score"] = round((time.perf_counter() - t) * 1000)
+
+        if meta["route"] == "searxng" and self.store.available:
+            to_cache = [c for c in pool if c.get("origin") == "searxng" and c["evidence_type"] == "extracted"
+                        and c["relevance_score"] >= s.cache_min_relevance]
+            try:
+                meta["cached_chunks_added"] = self.store.add_chunks(to_cache, query=query_text, query_vector=qvec)
+            except Exception:
+                logger.exception("Caching evidence failed; continuing without cache")
+
+        evidence = [self._to_evidence(c) for c in selected]
+        meta.update(
+            retrieval_time_ms=round((time.perf_counter() - started) * 1000),
+            num_sources_total=len(pool), num_sources_kept=len(evidence),
+            num_live_web_sources=sum(1 for e in evidence if e["source_type"] == "web"),
+            num_cached_sources=sum(1 for e in evidence if e["source_type"] == "faiss_cache"),
+            top_source_domain=evidence[0]["source_domain"] if evidence else None,
+            independent_source_count=info["independent_source_count"],
+            insufficient_evidence=info["insufficient_evidence"],
+            insufficient_reason=info.get("insufficient_reason"),
+            degraded=sorted(set(meta["degraded"])),
+        )
+        if info["insufficient_evidence"]:
+            logger.info("Insufficient evidence for claim (%s): %s", meta["route"], info.get("insufficient_reason"))
+        return {
+            "claim": normalized_claim, "original_language": original_language,
+            "normalized_claim": normalized_claim, "sub_claims": sub_claims,
+            "evidence": evidence, "metadata": meta,
+        }
+
+
+# Backwards-compatible alias
 EvidenceRetrievalPipeline = TeamARetrievalPipeline
 
-# Quick standalone test execution
-if __name__ == "__main__":
-    INDEX_PATH    = os.path.join(BASE_DIR, "indexes", "truthlens.faiss")
-    METADATA_PATH = os.path.join(BASE_DIR, "indexes", "metadata.pkl")
-    API_KEY       = os.getenv("TAVILY_API_KEY", "")
-
-    pipeline = TeamARetrievalPipeline(
-        index_path=INDEX_PATH,
-        metadata_path=METADATA_PATH,
-        tavily_api_key=API_KEY
-    )
-
-    test_claim = "COVID-19 vaccines cause infertility"
-    print(f"\n--- Processing Claim: '{test_claim}' ---")
-    result = pipeline.process_claim(test_claim, top_k=5)
-
-    import json
-    print(json.dumps(result, indent=2, default=str))
