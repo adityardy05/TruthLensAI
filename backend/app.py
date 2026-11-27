@@ -29,7 +29,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     retriever = TeamARetrievalPipeline(
         index_path=str(settings.faiss_index_path),
         metadata_path=str(settings.faiss_metadata_path),
-        tavily_api_key=settings.tavily_api_key,
+        settings=settings.retrieval,
     )
     app.extensions["retriever"] = retriever
     app.extensions["verification_service"] = VerificationService(retriever, settings.max_upload_bytes)
@@ -47,3 +47,4 @@ app = create_app()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
+

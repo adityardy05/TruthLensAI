@@ -30,8 +30,7 @@ def health():
     return jsonify({
         "status": "healthy",
         "service": "TruthLens Flask API",
-        "faiss_loaded": retriever.faiss_index is not None,
-        "tavily_configured": bool(retriever.scraper.api_key),
+        **retriever.health(),
     })
 
 
@@ -85,3 +84,4 @@ def verify_url():
 
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
+

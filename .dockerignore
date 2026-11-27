@@ -1,0 +1,16 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+config/.env
+config/.env.*
+!config/.env.example
+indexes/
+*.db
+*.sqlite
+*.sqlite3
+.pytest_cache

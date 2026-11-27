@@ -625,7 +625,7 @@ def _build_evidence_summary(
         content = ev.get(
             "content",
             ""
-        )[:150]
+        )[:600]
 
         lines.append(
             f"- {domain} "

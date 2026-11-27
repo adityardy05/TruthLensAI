@@ -1,3 +1,5 @@
+> **Note:** parts of this document describe the earlier LIAR-dataset / Tavily design. See [../architecture.md](../architecture.md) for the current retrieval architecture.
+
 # Fake News Detection: Retrieval (RAG) Module
 **Comprehensive Project Documentation**
 
@@ -167,3 +169,4 @@ The Retrieval Module is continuously benchmarked using the built-in `evaluation/
 * Wang, W. Y. (2017). *"Liar, Liar Pants on Fire": A New Benchmark Dataset for Fake News Detection.*
 * Johnson, J., Douze, M., & Jégou, H. (2017). *Billion-scale similarity search with GPUs (FAISS).*
 * Reimers, N., & Gurevych, I. (2019). *Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks.*
+

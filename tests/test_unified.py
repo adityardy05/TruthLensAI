@@ -9,7 +9,7 @@ from bot.backend_client import BackendClient
 
 
 class FakeRetriever:
-    def process_claim(self, claim, original_language, top_k=5):
+    def process_claim(self, claim, original_language, top_k=5, original_claim=None):
         return {"sub_claims": [claim], "evidence": [{"source_domain": "example.org", "combined_reliability": 0.8}],
                 "metadata": {"num_sources_kept": 1}}
 
@@ -28,7 +28,7 @@ class UnifiedArchitectureTests(unittest.TestCase):
         app.extensions["verification_service"] = type("Service", (), {
             "verify_text": lambda _, claim, original_language=None, top_k=5: {"original_claim": claim, "verdict": "UNVERIFIABLE", "confidence": 0, "evidence": []}
         })()
-        app.extensions["retriever"] = type("Retriever", (), {"faiss_index": None, "scraper": type("Scraper", (), {"api_key": None})()})()
+        app.extensions["retriever"] = type("Retriever", (), {"health": lambda self: {"faiss_loaded": False, "faiss_entries": 0, "searxng_configured": True, "searxng_reachable": False}})()
         app.register_blueprint(api)
         self.assertEqual(app.test_client().post("/api/v1/verify", json={"claim": "test"}).get_json()["verdict"], "UNVERIFIABLE")
         self.assertEqual(app.test_client().get("/api/v1/health").status_code, 200)
@@ -44,3 +44,4 @@ class UnifiedArchitectureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
