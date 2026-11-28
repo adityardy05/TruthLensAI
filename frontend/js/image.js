@@ -1,58 +1,95 @@
-/* ============================================================
-   TruthLens · js/image.js
-   Image upload: 5 MB validation, preview inside the upload
-   placeholder, the mock OCR box, and remove/replace.
+/* TruthLens image upload and real backend OCR preview. */
+function getOcrStatusElement() {
+    const ocr = document.getElementById('ocr-text');
+    if (!ocr) return null;
+    let status = document.getElementById('ocr-status');
+    if (!status) {
+        status = document.createElement('p');
+        status.id = 'ocr-status';
+        status.className = 'text-xs text-text-muted mb-2';
+        ocr.parentElement.insertBefore(status, ocr);
+    }
+    return status;
+}
 
-   IMPORTANT: nothing in this file — and nothing in analyzeClaim() —
-   may call #img-upload.click(). The dashed drop-zone in index.html
-   is the only thing allowed to open the OS file picker. Clicking
-   Analyze must never reopen it.
-   ============================================================ */
-
-/* Placeholder OCR output, captured from the markup at load time.
-   A real OCR call would replace this on upload. */
-const OCR_MOCK = (document.getElementById('ocr-text') || {}).value || '';
-
-function handleImageUpload(e) {
-    const file = e.target.files[0];
+async function handleImageUpload(e) {
+    const file = e.target.files && e.target.files[0];
     if (!file) return;
-
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+        alert('Please select a PNG or JPG image.');
+        e.target.value = '';
+        return;
+    }
     if (file.size > 5 * 1024 * 1024) {
         alert('Image must be under 5MB.');
         e.target.value = '';
         return;
     }
 
-    const reader = new FileReader();
-    reader.onload = ev => {
-        const thumb = document.getElementById('img-thumb');
-        thumb.src = ev.target.result;
-        thumb.classList.remove('hidden');
-        document.getElementById('img-placeholder').classList.add('hidden');
-        document.getElementById('img-name').textContent = file.name;
-        document.getElementById('img-name').classList.remove('hidden');
-        document.getElementById('img-preview').classList.remove('hidden');
+    const thumb = document.getElementById('img-thumb');
+    const placeholder = document.getElementById('img-placeholder');
+    const nameEl = document.getElementById('img-name');
+    const preview = document.getElementById('img-preview');
+    const ocr = document.getElementById('ocr-text');
+    const status = getOcrStatusElement();
 
-        // Only refilled when the box was left blank, so a selected image
-        // always leaves something for Analyze to submit, but a caption the
-        // user typed themselves is never overwritten.
-        const ocr = document.getElementById('ocr-text');
-        if (ocr && !ocr.value.trim()) ocr.value = OCR_MOCK;
-    };
-    reader.readAsDataURL(file);
+    if (thumb.src.startsWith('blob:')) URL.revokeObjectURL(thumb.src);
+    thumb.src = URL.createObjectURL(file);
+    thumb.classList.remove('hidden');
+    placeholder.classList.add('hidden');
+    nameEl.textContent = file.name;
+    nameEl.classList.remove('hidden');
+    preview.classList.remove('hidden');
+
+    if (ocr) {
+        ocr.value = '';
+        ocr.placeholder = 'Extracting text from image...';
+    }
+    if (status) status.textContent = 'Uploading image for OCR...';
+
+    try {
+        const body = new FormData();
+        body.append('image', file);
+        const response = await fetch('/api/v1/ocr', { method: 'POST', body });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'OCR extraction failed.');
+        if (!data.original_text || !data.original_text.trim()) {
+            throw new Error('No readable text was found in this image.');
+        }
+        if (ocr) {
+            ocr.value = data.original_text;
+            ocr.placeholder = 'Extracted text will appear here after OCR.';
+        }
+        if (status) {
+            status.textContent = 'OCR completed · ' +
+                String(data.detected_language || 'unknown').toUpperCase() + ' detected';
+        }
+    } catch (error) {
+        if (ocr) {
+            ocr.value = '';
+            ocr.placeholder = 'OCR extraction failed. Try a clearer image.';
+        }
+        if (status) status.textContent = error.message || 'OCR extraction failed.';
+        console.error('[TruthLens OCR]', error);
+    }
 }
 
 function removeImage() {
     document.getElementById('img-preview').classList.add('hidden');
     document.getElementById('img-upload').value = '';
-
     const thumb = document.getElementById('img-thumb');
+    if (thumb.src.startsWith('blob:')) URL.revokeObjectURL(thumb.src);
     thumb.removeAttribute('src');
     thumb.classList.add('hidden');
-
     const nameEl = document.getElementById('img-name');
     nameEl.textContent = '';
     nameEl.classList.add('hidden');
-
+    const ocr = document.getElementById('ocr-text');
+    if (ocr) {
+        ocr.value = '';
+        ocr.placeholder = 'Extracted text will appear here after OCR.';
+    }
+    const status = document.getElementById('ocr-status');
+    if (status) status.textContent = '';
     document.getElementById('img-placeholder').classList.remove('hidden');
 }
