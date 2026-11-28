@@ -147,7 +147,7 @@ def test_search_survives_embedder_failure(tmp_path):
 def test_query_anchor_links_to_its_chunks_and_matches_the_claim_not_the_passage(tmp_path):
     emb = FakeEmbedder()
     s = store(tmp_path, embedder=emb)
-    chunks = [chunk("long passage about hospitals studies and participants and outcomes " * 3, idx=i, url=f"https://a.com/{i}") for i in range(3)]
+    chunks = [chunk(("long passage about hospitals studies and participants and outcomes " * 3) + f" source record {i}", idx=i, url=f"https://a.com/{i}") for i in range(3)]
     q = "vaccine causes infertility"
     assert s.add_chunks(chunks, query=q, query_vector=emb.encode([q])[0]) == 3
     assert s.count == 4                                  # 3 chunks + 1 anchor

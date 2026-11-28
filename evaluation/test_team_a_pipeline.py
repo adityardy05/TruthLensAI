@@ -32,6 +32,9 @@ class _NoStore:
     available = False
     count = 0
 
+    def get_chunks_by_keys(self, keys):
+        return []
+
 
 class _NoSearch:
     def search(self, query, language=None):

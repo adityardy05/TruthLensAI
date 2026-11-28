@@ -221,7 +221,11 @@ class TestRound1QA:
 
         state = _after_credibility(_base_state())
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round1_qa_node(state)
 
@@ -242,7 +246,11 @@ class TestRound1QA:
 
         state = _after_credibility(_base_state())
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round1_qa_node(state)
 
@@ -256,7 +264,11 @@ class TestRound1QA:
         state               = _after_credibility(_base_state())
         state["total_llm_calls"] = 1  # decompose already ran
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round1_qa_node(state)
 
@@ -365,12 +377,17 @@ class TestRound2QA:
         state = _after_round1(_base_state(), certain_answers=True)
         round1_memory_len = len(state["qa_memory"])   # 3
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round2_qa_node(state)
 
-        # Should have Round 1 (3) + Round 2 (3) = 6 entries
-        assert len(result["qa_memory"]) == round1_memory_len + 3
+        # Round 2 is Fact Checker only: one new entry is appended.
+        assert len(result["qa_memory"]) == round1_memory_len + 1
+        assert result["qa_memory"][-1]["persona"] == "Fact Checker"
         assert result["rounds_executed"] == 2
         print(f"\n  Memory after Round 2: {len(result['qa_memory'])} entries")
 
@@ -380,12 +397,17 @@ class TestRound2QA:
 
         state = _after_round1(_base_state(), certain_answers=True)
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round2_qa_node(state)
 
         round2_entries = [e for e in result["qa_memory"] if e["round"] == 2]
-        assert len(round2_entries) == 3
+        assert len(round2_entries) == 1
+        assert round2_entries[0]["persona"] == "Fact Checker"
 
     def test_total_llm_calls_after_round2(self):
         """Round 2 adds 6 more LLM calls."""
@@ -394,11 +416,15 @@ class TestRound2QA:
         state = _after_round1(_base_state(), certain_answers=True)
         state["total_llm_calls"] = 7   # after decompose(1) + round1(6)
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round2_qa_node(state)
 
-        assert result["total_llm_calls"] == 13
+        assert result["total_llm_calls"] == 9  # 7 existing + 2 Round 2 calls
         print(f"\n  Total LLM calls after Round 2: {result['total_llm_calls']}")
 
 
@@ -503,6 +529,10 @@ class TestFullPipeline:
 
         with patch("backend.agents.team_b.nodes.decompose_claim.call_deepseek_json", return_value=FAKE_DECOMPOSE_RESPONSE), \
              patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_ANSWER), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.99,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }), \
              patch("backend.agents.team_b.nodes.final_judgment.call_deepseek_json", return_value=FAKE_JUDGMENT_RESPONSE):
 
             result = run_graph(
@@ -602,6 +632,8 @@ def _after_round1(state: dict, certain_answers: bool = True) -> dict:
                 "question": "Does any credible source confirm whiskey cures COVID?",
                 "answer":   answer,
                 "insight":  "No credible source confirms whiskey cures COVID" if certain_answers else "unclear",
+                "stance": "CONTRADICT",
+                "confidence": 0.95,
             },
             {
                 "round":    1,
@@ -609,6 +641,8 @@ def _after_round1(state: dict, certain_answers: bool = True) -> dict:
                 "question": "Is there a biological mechanism for whiskey to cure COVID?",
                 "answer":   answer,
                 "insight":  "No biological mechanism exists" if certain_answers else "uncertain",
+                "stance": "CONTRADICT",
+                "confidence": 0.95,
             },
             {
                 "round":    1,
@@ -616,6 +650,8 @@ def _after_round1(state: dict, certain_answers: bool = True) -> dict:
                 "question": "Does this claim follow a known misinformation pattern?",
                 "answer":   answer,
                 "insight":  "Matches miracle cure misinformation pattern" if certain_answers else "mixed signals",
+                "stance": "SUPPORT",
+                "confidence": 0.95,
             },
         ],
         "total_llm_calls": 7,

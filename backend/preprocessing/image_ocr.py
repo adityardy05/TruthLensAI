@@ -41,7 +41,9 @@ Python packages:
 """
 
 import io
+import os
 import re
+from pathlib import Path
 import numpy as np
 from PIL import Image
 
@@ -103,8 +105,26 @@ except ImportError:
 # Marathi   | mar       | mr         | mr
 # ----------------------------------------------------------------
 
-# Tesseract multi-language string — all supported languages combined
-TESSERACT_LANG = "eng+hin+tel+tam+urd+ben+mar"
+# Preferred OCR languages. At runtime, use only language packs that are
+# actually installed; one missing traineddata file must not disable all OCR.
+TESSERACT_LANGS = ("eng", "hin", "tel", "tam", "urd", "ben", "mar")
+
+
+def _configure_tesseract() -> None:
+    """Configure a Windows Tesseract path when supplied or installed conventionally."""
+    if not HAS_PYTESSERACT:
+        return
+    configured = os.getenv("TESSERACT_CMD")
+    if configured:
+        pytesseract.pytesseract.tesseract_cmd = configured
+        return
+    if os.name == "nt":
+        common_path = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+        if common_path.exists():
+            pytesseract.pytesseract.tesseract_cmd = str(common_path)
+
+
+_configure_tesseract()
 
 
 # ================================================================
@@ -118,7 +138,7 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     if len(img.shape) == 2:
         gray = img
     else:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     denoised = cv2.fastNlMeansDenoising(gray, h=10)
     thresh = cv2.adaptiveThreshold(
         denoised, 255,
@@ -130,14 +150,23 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     return Image.fromarray(thresh)
 
 def run_ocr(image_bytes: bytes) -> str:
-    # Attempt pytesseract first if module is present
+    # Attempt local Tesseract first when both the Python package and binary exist.
     if HAS_PYTESSERACT:
         try:
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             preprocessed = preprocess_image(image)
+            installed_languages = set(pytesseract.get_languages(config=""))
+            available_languages = [
+                lang for lang in TESSERACT_LANGS if lang in installed_languages
+            ]
+            if not available_languages:
+                raise RuntimeError(
+                    "No supported Tesseract language data is installed. "
+                    "Install at least eng.traineddata."
+                )
             text = pytesseract.image_to_string(
                 preprocessed,
-                lang=TESSERACT_LANG,
+                lang="+".join(available_languages),
                 config="--psm 6 --oem 3"
             )
             if text.strip():
@@ -145,13 +174,21 @@ def run_ocr(image_bytes: bytes) -> str:
         except Exception as e:
             print(f"[OCRProcessor] Local Tesseract OCR failed: {e}. Falling back to OCR.space API...")
 
-    # Fallback to OCR.space free API
+    # Optional OCR.space fallback. Never rely on the public demo key.
     print("[OCRProcessor] Using OCR.space API fallback...")
+    api_key = os.getenv("OCR_SPACE_API_KEY", "").strip()
+    if not api_key:
+        print(
+            "[OCRProcessor] OCR.space fallback disabled: "
+            "set OCR_SPACE_API_KEY to enable it."
+        )
+        return ""
+
     try:
         import requests
         payload = {
-            'apikey': 'helloworld',
-            'language': 'eng',
+            'apikey': api_key,
+            'language': os.getenv("OCR_SPACE_LANGUAGE", "eng"),
         }
         response = requests.post(
             'https://api.ocr.space/parse/image',

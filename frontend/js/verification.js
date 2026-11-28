@@ -219,7 +219,7 @@ function setTerminalState(state) {
         : state === 'judging'
             ? 'Backend evidence and reviewer analysis are being evaluated...'
             : state === 'finalizing'
-                ? 'Final supervisor is synthesizing the judgment...'
+                ? 'Waiting for the verification backend to return its result...'
                 : 'Verification completed.';
     if (cursor) cursor.innerHTML = '&gt; ' + line + '<span class="terminal-cursor"></span>';
 }
@@ -284,10 +284,45 @@ function setTargetClaim(text, isExample) {
     if (labelEl) labelEl.textContent = isExample ? 'Target Claim · Example' : 'Target Claim';
 }
 
-/* Full reset of the pipeline screen, used before a run starts. */
+/* Clear every line from the previous claim while preserving the
+   terminal's expected elements and IDs for setTerminalState(). */
+function resetAgentProcessingLog() {
+    const terminal = document.getElementById('terminal-content');
+    if (!terminal) return;
+
+    terminal.replaceChildren();
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'text-white/60';
+    placeholder.id = 'terminal-placeholder';
+    placeholder.textContent = 'Waiting for the verification backend...';
+
+    const evidence = document.createElement('div');
+    evidence.className = 'mt-2 text-white/80';
+    evidence.id = 'terminal-evidence-line';
+    evidence.style.display = 'none';
+
+    const judge = document.createElement('div');
+    judge.className = 'mt-2 text-white/80';
+    judge.id = 'terminal-judge-line';
+    judge.style.display = 'none';
+
+    const cursor = document.createElement('div');
+    cursor.className = 'mt-1 flex items-center text-[#00dbe9]';
+    cursor.id = 'terminal-cursor-line';
+    cursor.append('> Waiting for backend analysis');
+    const cursorAnimation = document.createElement('span');
+    cursorAnimation.className = 'terminal-cursor';
+    cursor.appendChild(cursorAnimation);
+
+    terminal.append(placeholder, evidence, judge, cursor);
+}
+
+/* Full reset of the pipeline screen, used before every new claim. */
 function resetCheckingPipeline() {
     clearCheckingTimers();
     resetPipelineSteps();
+    resetAgentProcessingLog();
     setTerminalState('default');
 }
 const resetPipeline = resetCheckingPipeline;
@@ -350,7 +385,10 @@ async function analyzeClaim() {
     setCurrentClaim(claim, currentMode);
     let verificationRequest;
     try {
-        verificationRequest = submitVerification(currentMode);
+        verificationRequest = submitVerification(
+            currentMode,
+            event => handleVerificationProgress(event, runId)
+        );
     } catch (error) {
         alert(error.message);
         return;
@@ -395,32 +433,53 @@ async function analyzeClaim() {
         if (runId !== activeVerificationRun) return;
         markClaimChecking();
         setTargetClaim(claim, false);
-        resetCheckingPipeline();
+        // Do not reset here: real backend events may already have arrived
+        // while the side checking card was visible.
         switchView('checking');
         await simulateCheckingProcess(verificationRequest, runId);
     }, 3400));
 }
 
-/* The full pipeline run on #view-checking. Timers only — this is
-   where real backend progress events would be wired in. */
+/* Append real backend/LangGraph events to the Agent Processing Log. */
+function handleVerificationProgress(event, runId) {
+    // Ignore events from requests that have been superseded by a newer run.
+    if (runId !== activeVerificationRun) return;
+
+    const terminal = document.getElementById('terminal-content');
+    if (!terminal || !event) return;
+
+    const stage = String(event.stage || 'progress');
+    const message = String(event.message || 'Backend progress updated.');
+    const status = String(event.status || 'completed');
+    const line = document.createElement('div');
+    line.className = 'mt-1';
+    const marker = status === 'running' ? '[●]' : status === 'error' ? '[!]' : '[✓]';
+    line.textContent = marker + ' ' + message;
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+
+    const stageMap = {
+        decompose: 1,
+        retrieval: 2,
+        credibility: 2,
+        round1: 3,
+        confidence: 4,
+        round2: 4,
+        round3: 4,
+        judge: 5,
+        complete: 5
+    };
+    const step = stageMap[stage];
+    if (step) {
+        for (let i = 1; i < step; i++) setPipelineStep(i, 'done');
+        setPipelineStep(step, status === 'completed' ? 'done' : 'running');
+        if (step < 5 && status === 'completed') setPipelineStep(step + 1, 'running');
+    }
+    if (stage === 'judge' || stage === 'complete') setTerminalState('finalizing');
+}
+
+/* The backend stream now owns timing and stage transitions. */
 async function simulateCheckingProcess(verificationRequest, runId) {
-    // Stage 3 completes, stage 4 begins
-    checkingTimers.push(setTimeout(() => {
-        if (runId !== activeVerificationRun) return;
-        setPipelineStep(3, 'done');
-        setPipelineStep(4, 'running');
-        setTerminalState('judging');
-    }, 2000));
-
-    // Stage 4 completes, stage 5 begins
-    checkingTimers.push(setTimeout(() => {
-        if (runId !== activeVerificationRun) return;
-        setPipelineStep(4, 'done');
-        setPipelineStep(5, 'running');
-        setTerminalState('finalizing');
-    }, 4000));
-
-    // Verdict reached -> Results
     try {
         const result = await verificationRequest;
         if (runId !== activeVerificationRun) return;
