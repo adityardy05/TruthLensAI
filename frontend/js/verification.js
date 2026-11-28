@@ -284,10 +284,45 @@ function setTargetClaim(text, isExample) {
     if (labelEl) labelEl.textContent = isExample ? 'Target Claim · Example' : 'Target Claim';
 }
 
-/* Full reset of the pipeline screen, used before a run starts. */
+/* Clear every line from the previous claim while preserving the
+   terminal's expected elements and IDs for setTerminalState(). */
+function resetAgentProcessingLog() {
+    const terminal = document.getElementById('terminal-content');
+    if (!terminal) return;
+
+    terminal.replaceChildren();
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'text-white/60';
+    placeholder.id = 'terminal-placeholder';
+    placeholder.textContent = 'Waiting for the verification backend...';
+
+    const evidence = document.createElement('div');
+    evidence.className = 'mt-2 text-white/80';
+    evidence.id = 'terminal-evidence-line';
+    evidence.style.display = 'none';
+
+    const judge = document.createElement('div');
+    judge.className = 'mt-2 text-white/80';
+    judge.id = 'terminal-judge-line';
+    judge.style.display = 'none';
+
+    const cursor = document.createElement('div');
+    cursor.className = 'mt-1 flex items-center text-[#00dbe9]';
+    cursor.id = 'terminal-cursor-line';
+    cursor.append('> Waiting for backend analysis');
+    const cursorAnimation = document.createElement('span');
+    cursorAnimation.className = 'terminal-cursor';
+    cursor.appendChild(cursorAnimation);
+
+    terminal.append(placeholder, evidence, judge, cursor);
+}
+
+/* Full reset of the pipeline screen, used before every new claim. */
 function resetCheckingPipeline() {
     clearCheckingTimers();
     resetPipelineSteps();
+    resetAgentProcessingLog();
     setTerminalState('default');
 }
 const resetPipeline = resetCheckingPipeline;
