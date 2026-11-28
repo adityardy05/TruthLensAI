@@ -60,9 +60,22 @@ function fetchUrl() {
 }
 
 /* ---------- Language detection ----------
-   Script-range heuristic only (patterns in data/mock-data.js);
-   a real detector belongs on the backend. */
+   Lightweight script heuristic for the UI badge only.
+   Backend detection remains authoritative for verification. */
+const LANG_PATTERNS = [
+    { pattern: /[\\u0900-\\u097F]/, lang: 'Hindi' },
+    { pattern: /[\\u0C00-\\u0C7F]/, lang: 'Telugu' },
+    { pattern: /[\\u0B80-\\u0BFF]/, lang: 'Tamil' },
+    { pattern: /[\\u0980-\\u09FF]/, lang: 'Bengali' },
+    { pattern: /[\\u0A00-\\u0A7F]/, lang: 'Punjabi' },
+    { pattern: /[\\u0D00-\\u0D7F]/, lang: 'Malayalam' },
+    { pattern: /[\\u0C80-\\u0CFF]/, lang: 'Kannada' },
+    { pattern: /[\\u0600-\\u06FF]/, lang: 'Arabic/Urdu' },
+];
+const LANG_DEFAULT = 'English';
+
 function detectLanguage(text) {
+    if (!text || !text.trim()) return LANG_DEFAULT;
     for (const { pattern, lang } of LANG_PATTERNS) {
         if (pattern.test(text)) return lang;
     }
