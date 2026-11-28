@@ -32,6 +32,7 @@ except ImportError:
     LANGGRAPH_AVAILABLE = False
 
 from backend.agents.team_b.state import VerificationState
+from backend.services.progress import set_progress_callback, reset_progress_callback, report_progress
 from backend.agents.team_b.nodes.decompose_claim import decompose_claim_node
 from backend.agents.team_b.nodes.credibility_check import credibility_check_node
 from backend.agents.team_b.nodes.round1_qa import round1_qa_node
@@ -181,6 +182,7 @@ def run_graph(
     original_language: str = "english",
     sub_claims: list = None,
     thread_id: str = None,
+    progress_callback=None,
 ) -> dict:
     """
     Convenience wrapper — builds and runs the TruthLens graph.
@@ -303,10 +305,30 @@ def run_graph(
 
     # ── Execute graph ──────────────────────────────────────────
 
-    final_state = app.invoke(
-        initial_state,
-        config=config
-    )
+    progress_token = set_progress_callback(progress_callback)
+    final_state = initial_state
+    stage_messages = {
+        "decompose_claim": ("decompose", "Claim decomposition completed."),
+        "credibility_check": ("retrieval", "Evidence retrieval and credibility assessment completed."),
+        "confidence_gate": ("confidence", "Confidence Gate evaluated Round 1 and selected the next route."),
+        "final_judgment": ("judge", "Final Judge completed the verification verdict."),
+    }
+    try:
+        for update in app.stream(initial_state, config=config, stream_mode="updates"):
+            for node_name, node_update in update.items():
+                if isinstance(node_update, dict):
+                    final_state = {**final_state, **node_update}
+                stage = stage_messages.get(node_name)
+                if stage:
+                    report_progress(stage[0], stage[1])
+                elif node_name == "round1_qa":
+                    report_progress("round1", "Round 1 completed: Fact Checker, Logical Analyst and Bias Detector.")
+                elif node_name == "round2_qa":
+                    report_progress("round2", "Round 2 completed: Fact Checker reviewed high-quality evidence.")
+                elif node_name == "round3_qa":
+                    report_progress("round3", "Round 3 completed: Logical Analyst reviewed low-quality evidence.")
+    finally:
+        reset_progress_callback(progress_token)
 
     print(
         f"\n[TruthLens] VERDICT: "
