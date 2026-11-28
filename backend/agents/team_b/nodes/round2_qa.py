@@ -28,6 +28,7 @@ sys.path.append(
 )
 
 from backend.agents.team_b.state import VerificationState
+from backend.services.progress import report_progress
 from backend.agents.team_b.personas import fact_checker
 
 
@@ -82,6 +83,7 @@ def round2_qa_node(
         ) >= HIGH_QUALITY_THRESHOLD
     ]
 
+    report_progress("round2", "Round 2: Fact Checker started", "running")
     print(
         f"[round2_qa] "
         f"High-quality evidence: "
@@ -223,6 +225,7 @@ def round2_qa_node(
             "[round2_qa] "
             "Round 2 complete."
         )
+        report_progress("round2", f"Round 2 completed: Fact Checker stance {stance}, confidence {confidence:.0%}.")
 
     except Exception as e:
 
