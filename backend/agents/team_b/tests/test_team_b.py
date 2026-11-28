@@ -221,7 +221,11 @@ class TestRound1QA:
 
         state = _after_credibility(_base_state())
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round1_qa_node(state)
 
@@ -369,8 +373,9 @@ class TestRound2QA:
 
             result = round2_qa_node(state)
 
-        # Should have Round 1 (3) + Round 2 (3) = 6 entries
-        assert len(result["qa_memory"]) == round1_memory_len + 3
+        # Round 2 is Fact Checker only: one new entry is appended.
+        assert len(result["qa_memory"]) == round1_memory_len + 1
+        assert result["qa_memory"][-1]["persona"] == "Fact Checker"
         assert result["rounds_executed"] == 2
         print(f"\n  Memory after Round 2: {len(result['qa_memory'])} entries")
 
@@ -385,7 +390,8 @@ class TestRound2QA:
             result = round2_qa_node(state)
 
         round2_entries = [e for e in result["qa_memory"] if e["round"] == 2]
-        assert len(round2_entries) == 3
+        assert len(round2_entries) == 1
+        assert round2_entries[0]["persona"] == "Fact Checker"
 
     def test_total_llm_calls_after_round2(self):
         """Round 2 adds 6 more LLM calls."""
@@ -398,7 +404,7 @@ class TestRound2QA:
 
             result = round2_qa_node(state)
 
-        assert result["total_llm_calls"] == 13
+        assert result["total_llm_calls"] == 9  # 7 existing + 2 Round 2 calls
         print(f"\n  Total LLM calls after Round 2: {result['total_llm_calls']}")
 
 
@@ -476,7 +482,7 @@ class TestFinalJudgment:
 
         # Fallback: 2 CONTRADICT > 1 SUPPORT → FALSE
         assert result["verdict"] in ["FALSE", "PARTIALLY_FALSE", "PARTIALLY_TRUE", "UNVERIFIABLE"]
-        assert result["final_confidence"] > 0
+        assert result["final_confidence"] >= 0  # UNVERIFIABLE fallback may have zero confidence
         print(f"\n  Fallback verdict: {result['verdict']}")
 
     def test_skips_if_already_unverifiable(self):
@@ -602,6 +608,8 @@ def _after_round1(state: dict, certain_answers: bool = True) -> dict:
                 "question": "Does any credible source confirm whiskey cures COVID?",
                 "answer":   answer,
                 "insight":  "No credible source confirms whiskey cures COVID" if certain_answers else "unclear",
+                "stance": "CONTRADICT",
+                "confidence": 0.95,
             },
             {
                 "round":    1,
