@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
+import json
+import queue
+import threading
 
 from backend.preprocessing.image_ocr import process_image_input
 
@@ -63,6 +66,70 @@ def extract_image_text():
         "detected_language": result["detected_language"],
         "input_type": "image",
     }), 200
+
+
+
+@api.post("/verify/stream")
+def verify_stream():
+    """Stream real backend progress events followed by the final verification result."""
+    payload = request.get_json(silent=True) or {}
+    mode = str(payload.get("mode", "text"))
+    top_k = _parse_top_k(payload)
+    app = current_app._get_current_object()
+    service = _service()
+    events = queue.Queue()
+
+    if mode == "image":
+        image = request.files.get("image") or request.files.get("file")
+        if image is None or not image.filename:
+            return jsonify({"error": "An image file is required."}), 400
+        image_bytes = image.read()
+        if not image_bytes:
+            return jsonify({"error": "The uploaded image is empty."}), 400
+        if len(image_bytes) > service.max_upload_bytes:
+            return jsonify({"error": "Image exceeds the configured upload limit."}), 413
+        worker_call = lambda: service.verify_image(image_bytes, progress_callback=events.put)
+    elif mode == "url":
+        url = str(payload.get("url", "")).strip()
+        if not url:
+            return jsonify({"error": "A URL is required."}), 400
+        worker_call = lambda: service.verify_url(url, progress_callback=events.put)
+    else:
+        claim = str(payload.get("claim", "")).strip()
+        if not claim:
+            return jsonify({"error": "A non-empty claim is required."}), 400
+        language = str(payload.get("original_language", "en"))
+        worker_call = lambda: service.verify_text(
+            claim, original_language=language, top_k=top_k, progress_callback=events.put
+        )
+
+    def run_worker():
+        try:
+            with app.app_context():
+                events.put({"event": "progress", "stage": "started",
+                            "message": "Verification worker started.", "status": "running"})
+                result = worker_call()
+                events.put({"event": "result", "data": result})
+        except Exception as error:
+            events.put({"event": "error", "message": str(error)})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=run_worker, daemon=True).start()
+
+    @stream_with_context
+    def generate():
+        yield "retry: 1500\\n\\n"
+        while True:
+            event = events.get()
+            if event is None:
+                yield "event: done\\ndata: {}\\n\\n"
+                break
+            event_type = event.pop("event", "progress")
+            yield "event: " + event_type + "\\ndata: " + json.dumps(event, ensure_ascii=False) + "\\n\\n"
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @api.post("/verify")
