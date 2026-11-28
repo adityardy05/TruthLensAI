@@ -53,10 +53,15 @@ Coverage Assessment:
 - Logical validity covered: {logical_covered}
 - Bias/manipulation covered: {bias_covered}
 
-Evidence Stance Distribution:
-- Supporting: {support_count} sources
-- Contradicting: {contradict_count} sources
-- Neutral: {neutral_count} sources
+Persona Stance Distribution (counts are persona analyses, not individual evidence documents):
+- Supporting: {support_count} personas
+- Contradicting: {contradict_count} personas
+- Neutral: {neutral_count} personas
+
+Classified Evidence Stance Distribution (only evidence records with an explicit stance label):
+- Supporting: {evidence_support_count} evidence records
+- Contradicting: {evidence_contradict_count} evidence records
+- Neutral: {evidence_neutral_count} evidence records
 
 Rounds executed:
 {rounds_executed}
@@ -154,16 +159,29 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
 
     # ── Stance breakdown ─────────────────────────────────────────
 
-    stances = [
-        ev.get("stance", "NEUTRAL")
+    evidence_stances = [
+        str(ev.get("stance", "")).upper().strip()
         for ev in evidence
+        if str(ev.get("stance", "")).upper().strip() in ("SUPPORT", "CONTRADICT", "NEUTRAL")
     ]
-
-    stance_breakdown = {
-        "SUPPORT": stances.count("SUPPORT"),
-        "CONTRADICT": stances.count("CONTRADICT"),
-        "NEUTRAL": stances.count("NEUTRAL"),
+    evidence_stance_breakdown = {
+        "SUPPORT": evidence_stances.count("SUPPORT"),
+        "CONTRADICT": evidence_stances.count("CONTRADICT"),
+        "NEUTRAL": evidence_stances.count("NEUTRAL"),
     }
+    persona_stances = [
+        str(result.get("stance", "")).upper().strip()
+        for result in resolved_personas.values()
+        if result.get("available")
+        and str(result.get("stance", "")).upper().strip() in ("SUPPORT", "CONTRADICT", "NEUTRAL")
+    ]
+    persona_stance_breakdown = {
+        "SUPPORT": persona_stances.count("SUPPORT"),
+        "CONTRADICT": persona_stances.count("CONTRADICT"),
+        "NEUTRAL": persona_stances.count("NEUTRAL"),
+    }
+    # Preserve the existing API meaning: stance_breakdown counts evidence records.
+    stance_breakdown = evidence_stance_breakdown
 
     # ── Build prompt information ─────────────────────────────────
 
@@ -204,11 +222,15 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
             else "No"
         ),
 
-        support_count=stance_breakdown["SUPPORT"],
+        support_count=persona_stance_breakdown["SUPPORT"],
 
-        contradict_count=stance_breakdown["CONTRADICT"],
+        contradict_count=persona_stance_breakdown["CONTRADICT"],
 
-        neutral_count=stance_breakdown["NEUTRAL"],
+        neutral_count=persona_stance_breakdown["NEUTRAL"],
+
+        evidence_support_count=evidence_stance_breakdown["SUPPORT"],
+        evidence_contradict_count=evidence_stance_breakdown["CONTRADICT"],
+        evidence_neutral_count=evidence_stance_breakdown["NEUTRAL"],
 
         rounds_executed=rounds_executed,
     )
@@ -221,17 +243,17 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
 
         llm_calls += 1
 
-        verdict = response.get(
-            "verdict",
-            "UNVERIFIABLE"
-        )
+        allowed_verdicts = {
+            "TRUE", "FALSE", "PARTIALLY_TRUE",
+            "PARTIALLY_FALSE", "UNVERIFIABLE"
+        }
+        verdict = str(response.get("verdict", "UNVERIFIABLE")).upper().strip()
+        if verdict not in allowed_verdicts:
+            raise ValueError(f"Invalid verdict returned by model: {verdict!r}")
 
-        confidence = float(
-            response.get(
-                "final_confidence",
-                50.0
-            )
-        )
+        confidence = float(response.get("final_confidence", 50.0))
+        if not 0.0 <= confidence <= 100.0:
+            raise ValueError("Model confidence must be between 0 and 100.")
 
         justification = str(response.get("justification") or "").strip()
 
@@ -285,7 +307,7 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
             justification,
             recommendation
         ) = _fallback_verdict(
-            stance_breakdown,
+            persona_stance_breakdown,
             state.get(
                 "avg_source_quality",
                 0.5
@@ -314,6 +336,8 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
         "justification": justification,
 
         "stance_breakdown": stance_breakdown,
+        "evidence_stance_breakdown": evidence_stance_breakdown,
+        "persona_stance_breakdown": persona_stance_breakdown,
 
         "persona_insights": persona_insights,
 
@@ -412,6 +436,13 @@ def _resolve_latest_personas(
         ]["round"]
 
         # Only replace when this is a newer round
+        if (
+            entry.get("status") == "failed"
+            or entry.get("insight") == "persona_failed"
+            or str(entry.get("answer", "")).startswith("Error occurred:")
+        ):
+            continue
+
         if round_num >= current_round:
 
             resolved[persona] = {
@@ -617,10 +648,7 @@ def _build_evidence_summary(
             0.5
         )
 
-        stance = ev.get(
-            "stance",
-            "NEUTRAL"
-        )
+        stance = ev.get("stance", "NOT CLASSIFIED")
 
         content = ev.get(
             "content",
@@ -699,22 +727,22 @@ def _fallback_verdict(
         neutral
     )
 
-    if total == 0:
-
+    directional_total = support + contradict
+    if directional_total == 0:
         return (
             "UNVERIFIABLE",
-            20.0,
-            "No evidence was available "
-            "to verify this claim.",
+            0.0,
+            "The available persona analyses did not establish support "
+            "or contradiction. A reliable verdict cannot be determined.",
             "Verify independently"
         )
 
     contradict_ratio = (
-        contradict / total
+        contradict / directional_total
     )
 
     support_ratio = (
-        support / total
+        support / directional_total
     )
 
     if contradict_ratio >= 0.7:
@@ -726,7 +754,7 @@ def _fallback_verdict(
                 contradict_ratio * 35,
                 1
             ),
-            f"{contradict}/{total} "
+            f"{contradict}/{directional_total} "
             "sources contradict the claim.",
             "Do not share"
         )
@@ -740,18 +768,24 @@ def _fallback_verdict(
                 support_ratio * 35,
                 1
             ),
-            f"{support}/{total} "
+            f"{support}/{directional_total} "
             "sources support the claim.",
             "Likely accurate"
         )
 
-    else:
-
+    elif support > 0 and contradict > 0:
         return (
             "PARTIALLY_TRUE",
             50.0,
-            "Evidence is mixed — some "
-            "sources support, others "
-            "contradict.",
+            "Persona analyses contain both supporting and contradicting "
+            "signals; the claim requires further verification.",
+            "Verify independently"
+        )
+    else:
+        return (
+            "UNVERIFIABLE",
+            25.0,
+            "The available analysis is insufficient to establish a "
+            "well-supported verdict.",
             "Verify independently"
         )

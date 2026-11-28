@@ -105,6 +105,7 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
                 "confidence":  persona_confidence,
                 "reasoning":   reasoning,
                 "insight":     insight,
+                "status":     "completed",
             })
 
             print(f"[round1_qa] {name} done. Insight: {insight[:60]}...")
@@ -119,6 +120,7 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
                 "question": f"[FAILED: {name}]",
                 "answer":   f"Error occurred: {e}",
                 "insight":  "persona_failed",
+                "status":   "failed",
             })
 
     print(f"[round1_qa] Round 1 complete. Memory entries: {len(memory)}")

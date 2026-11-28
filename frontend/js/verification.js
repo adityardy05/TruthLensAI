@@ -385,7 +385,10 @@ async function analyzeClaim() {
     setCurrentClaim(claim, currentMode);
     let verificationRequest;
     try {
-        verificationRequest = submitVerification(currentMode, handleVerificationProgress);
+        verificationRequest = submitVerification(
+            currentMode,
+            event => handleVerificationProgress(event, runId)
+        );
     } catch (error) {
         alert(error.message);
         return;
@@ -438,7 +441,10 @@ async function analyzeClaim() {
 }
 
 /* Append real backend/LangGraph events to the Agent Processing Log. */
-function handleVerificationProgress(event) {
+function handleVerificationProgress(event, runId) {
+    // Ignore events from requests that have been superseded by a newer run.
+    if (runId !== activeVerificationRun) return;
+
     const terminal = document.getElementById('terminal-content');
     if (!terminal || !event) return;
 
