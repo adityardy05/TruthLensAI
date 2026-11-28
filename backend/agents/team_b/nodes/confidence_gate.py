@@ -134,7 +134,7 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
                 for phrase in UNCERTAIN_PHRASES
             )
         )
-        answer_certainty = 1.0 - (uncertain_count / len(memory))
+        answer_certainty = 1.0 - (uncertain_count / len(successful_memory))
     else:
         answer_certainty = 0.0
 
