@@ -73,7 +73,7 @@ def extract_image_text():
 def verify_stream():
     """Stream real backend progress events followed by the final verification result."""
     payload = request.get_json(silent=True) or {}
-    mode = str(payload.get("mode", "text"))
+    mode = str(payload.get("mode", request.form.get("mode", "text")))
     top_k = _parse_top_k(payload)
     app = current_app._get_current_object()
     service = _service()
