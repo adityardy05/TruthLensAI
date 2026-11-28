@@ -350,7 +350,7 @@ async function analyzeClaim() {
     setCurrentClaim(claim, currentMode);
     let verificationRequest;
     try {
-        verificationRequest = submitVerification(currentMode);
+        verificationRequest = submitVerification(currentMode, handleVerificationProgress);
     } catch (error) {
         alert(error.message);
         return;
@@ -401,26 +401,42 @@ async function analyzeClaim() {
     }, 3400));
 }
 
-/* The full pipeline run on #view-checking. Timers only — this is
-   where real backend progress events would be wired in. */
+/* Append only real backend events to the Agent Processing Log. */
+function handleVerificationProgress(event) {
+    const terminal = document.getElementById('terminal-content');
+    if (!terminal || !event) return;
+
+    const stage = String(event.stage || 'progress');
+    const message = String(event.message || 'Backend progress updated.');
+    const status = String(event.status || 'completed');
+    const line = document.createElement('div');
+    line.className = 'mt-1';
+    const marker = status === 'running' ? '[●]' : status === 'error' ? '[!]' : '[✓]';
+    line.textContent = marker + ' ' + message;
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+
+    const stageMap = {
+        decompose: 1,
+        retrieval: 2,
+        round1: 3,
+        confidence: 4,
+        round2: 4,
+        round3: 4,
+        judge: 5,
+        complete: 5
+    };
+    const step = stageMap[stage];
+    if (step) {
+        for (let i = 1; i < step; i++) setPipelineStep(i, 'done');
+        setPipelineStep(step, status === 'completed' ? 'done' : 'running');
+        if (step < 5 && status === 'completed') setPipelineStep(step + 1, 'running');
+    }
+    if (stage === 'judge' || stage === 'complete') setTerminalState('finalizing');
+}
+
+/* The backend stream now owns timing and stage transitions. */
 async function simulateCheckingProcess(verificationRequest, runId) {
-    // Stage 3 completes, stage 4 begins
-    checkingTimers.push(setTimeout(() => {
-        if (runId !== activeVerificationRun) return;
-        setPipelineStep(3, 'done');
-        setPipelineStep(4, 'running');
-        setTerminalState('judging');
-    }, 2000));
-
-    // Stage 4 completes, stage 5 begins
-    checkingTimers.push(setTimeout(() => {
-        if (runId !== activeVerificationRun) return;
-        setPipelineStep(4, 'done');
-        setPipelineStep(5, 'running');
-        setTerminalState('finalizing');
-    }, 4000));
-
-    // Verdict reached -> Results
     try {
         const result = await verificationRequest;
         if (runId !== activeVerificationRun) return;
