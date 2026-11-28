@@ -1,67 +1,56 @@
-async function submitVerification(mode, onProgress = () => {}) {
-    let body;
-    let headers;
+async function submitVerification(mode, onProgress) {
+    let response;
 
     if (mode === 'image') {
         const file = document.getElementById('img-upload')?.files?.[0];
         if (!file) throw new Error('Select an image before analyzing it.');
-        body = new FormData();
-        body.append('mode', 'image');
+        const body = new FormData();
         body.append('image', file);
+        response = await fetch('/api/v1/verify/start', { method: 'POST', body });
     } else if (mode === 'url') {
         const url = document.getElementById('url-input')?.value.trim();
-        body = JSON.stringify({ mode: 'url', url });
-        headers = { 'Content-Type': 'application/json' };
-    } else {
-        body = JSON.stringify({ mode: 'text', claim: getCurrentClaimText() });
-        headers = { 'Content-Type': 'application/json' };
-    }
-
-    const response = await fetch('/api/v1/verify/stream', {
-        method: 'POST',
-        headers,
-        body
-    });
-
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || 'Verification could not be started.');
-    }
-    if (!response.body) throw new Error('This browser does not support streamed verification updates.');
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let result = null;
-
-    const handleEvent = (block) => {
-        let eventName = 'message';
-        const dataLines = [];
-        block.split(/\\r?\\n/).forEach(line => {
-            if (line.startsWith('event:')) eventName = line.slice(6).trim();
-            else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+        response = await fetch('/api/v1/verify/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'url', url })
         });
-        if (!dataLines.length) return;
-        const payload = JSON.parse(dataLines.join('\\n'));
-        if (eventName === 'progress') onProgress(payload);
-        else if (eventName === 'result') result = payload.data;
-        else if (eventName === 'error') throw new Error(payload.message || 'Verification failed.');
-    };
-
-    try {
-        while (true) {
-            const { value, done } = await reader.read();
-            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-            const blocks = buffer.split(/\\r?\\n\\r?\\n/);
-            buffer = blocks.pop() || '';
-            blocks.forEach(handleEvent);
-            if (done) break;
-        }
-        if (buffer.trim()) handleEvent(buffer);
-    } finally {
-        reader.releaseLock();
+    } else {
+        response = await fetch('/api/v1/verify/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'text', claim: getCurrentClaimText() })
+        });
     }
 
-    if (!result) throw new Error('The verification stream ended without a result.');
-    return result;
+    const started = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(started.error || 'Could not start verification.');
+    if (!started.job_id) throw new Error('Backend did not return a verification job ID.');
+
+    // Poll the independent job endpoint while LangGraph runs in its worker.
+    let lastSequence = 0;
+    for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 650));
+        const progressResponse = await fetch(
+            '/api/v1/verify/progress/' + encodeURIComponent(started.job_id),
+            { cache: 'no-store' }
+        );
+        const job = await progressResponse.json().catch(() => ({}));
+        if (!progressResponse.ok) {
+            throw new Error(job.error || 'Could not read verification progress.');
+        }
+
+        const events = Array.isArray(job.events) ? job.events : [];
+        for (const event of events) {
+            const sequence = Number(event.sequence) || 0;
+            if (sequence > lastSequence) {
+                lastSequence = sequence;
+                if (typeof onProgress === 'function') onProgress(event);
+            }
+        }
+
+        if (job.status === 'completed') return job.result;
+        if (job.status === 'failed') {
+            throw new Error(job.error || 'Verification failed in the backend.');
+        }
+    }
 }
