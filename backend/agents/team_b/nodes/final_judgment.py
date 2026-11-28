@@ -53,10 +53,15 @@ Coverage Assessment:
 - Logical validity covered: {logical_covered}
 - Bias/manipulation covered: {bias_covered}
 
-Evidence Stance Distribution:
-- Supporting: {support_count} sources
-- Contradicting: {contradict_count} sources
-- Neutral: {neutral_count} sources
+Persona Stance Distribution (counts are persona analyses, not individual evidence documents):
+- Supporting: {support_count} personas
+- Contradicting: {contradict_count} personas
+- Neutral: {neutral_count} personas
+
+Classified Evidence Stance Distribution (only evidence records with an explicit stance label):
+- Supporting: {evidence_support_count} evidence records
+- Contradicting: {evidence_contradict_count} evidence records
+- Neutral: {evidence_neutral_count} evidence records
 
 Rounds executed:
 {rounds_executed}
@@ -220,6 +225,10 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
         contradict_count=stance_breakdown["CONTRADICT"],
 
         neutral_count=stance_breakdown["NEUTRAL"],
+
+        evidence_support_count=evidence_stance_breakdown["SUPPORT"],
+        evidence_contradict_count=evidence_stance_breakdown["CONTRADICT"],
+        evidence_neutral_count=evidence_stance_breakdown["NEUTRAL"],
 
         rounds_executed=rounds_executed,
     )
