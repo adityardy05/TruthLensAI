@@ -482,7 +482,7 @@ class TestFinalJudgment:
 
         # Fallback: 2 CONTRADICT > 1 SUPPORT → FALSE
         assert result["verdict"] in ["FALSE", "PARTIALLY_FALSE", "PARTIALLY_TRUE", "UNVERIFIABLE"]
-        assert result["final_confidence"] >= 0  # UNVERIFIABLE fallback may have zero confidence
+        assert result["final_confidence"] > 0
         print(f"\n  Fallback verdict: {result['verdict']}")
 
     def test_skips_if_already_unverifiable(self):
@@ -509,6 +509,10 @@ class TestFullPipeline:
 
         with patch("backend.agents.team_b.nodes.decompose_claim.call_deepseek_json", return_value=FAKE_DECOMPOSE_RESPONSE), \
              patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_ANSWER), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.99,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }), \
              patch("backend.agents.team_b.nodes.final_judgment.call_deepseek_json", return_value=FAKE_JUDGMENT_RESPONSE):
 
             result = run_graph(
@@ -617,6 +621,8 @@ def _after_round1(state: dict, certain_answers: bool = True) -> dict:
                 "question": "Is there a biological mechanism for whiskey to cure COVID?",
                 "answer":   answer,
                 "insight":  "No biological mechanism exists" if certain_answers else "uncertain",
+                "stance": "CONTRADICT",
+                "confidence": 0.95,
             },
             {
                 "round":    1,
@@ -624,6 +630,8 @@ def _after_round1(state: dict, certain_answers: bool = True) -> dict:
                 "question": "Does this claim follow a known misinformation pattern?",
                 "answer":   answer,
                 "insight":  "Matches miracle cure misinformation pattern" if certain_answers else "mixed signals",
+                "stance": "SUPPORT",
+                "confidence": 0.95,
             },
         ],
         "total_llm_calls": 7,
