@@ -28,6 +28,7 @@ sys.path.append(
 )
 
 from backend.agents.team_b.state import VerificationState
+from backend.services.progress import report_progress
 from backend.agents.team_b.personas import logical_analyst
 
 
@@ -82,6 +83,7 @@ def round3_qa_node(
         ) < HIGH_QUALITY_THRESHOLD
     ]
 
+    report_progress("round3", "Round 3: Logical Analyst started", "running")
     print(
         f"[round3_qa] "
         f"Low-quality evidence: "
@@ -221,6 +223,7 @@ def round3_qa_node(
             "[round3_qa] "
             "Round 3 complete."
         )
+        report_progress("round3", f"Round 3 completed: Logical Analyst stance {stance}, confidence {confidence:.0%}.")
 
     except Exception as e:
 
