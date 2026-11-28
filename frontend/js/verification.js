@@ -401,7 +401,7 @@ async function analyzeClaim() {
     }, 3400));
 }
 
-/* Append only real backend events to the Agent Processing Log. */
+/* Append real backend/LangGraph events to the Agent Processing Log. */
 function handleVerificationProgress(event) {
     const terminal = document.getElementById('terminal-content');
     if (!terminal || !event) return;
@@ -419,6 +419,7 @@ function handleVerificationProgress(event) {
     const stageMap = {
         decompose: 1,
         retrieval: 2,
+        credibility: 2,
         round1: 3,
         confidence: 4,
         round2: 4,
