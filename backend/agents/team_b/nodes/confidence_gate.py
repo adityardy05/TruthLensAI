@@ -99,8 +99,10 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
                 for stance in ("SUPPORT", "CONTRADICT", "NEUTRAL", "UNCERTAIN")
             }
             stance_consensus = max(counts.values()) / len(evidence_stances)
+        elif successful_memory:
+            stance_consensus = _derive_consensus_from_memory(successful_memory)
         else:
-            stance_consensus = _derive_consensus_from_memory(memory)
+            stance_consensus = 0.0
 
     # ── Signal 2: Avg source quality ─────────────────────────────
 
