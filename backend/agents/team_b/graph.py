@@ -51,6 +51,33 @@ CHECKPOINT_DB = os.getenv(
 )
 
 
+_NODE_PROGRESS = {
+    "decompose_claim": ("decompose", "Decomposing the claim into checkable subclaims."),
+    "credibility_check": ("credibility", "Retrieving and assessing source credibility."),
+    "round1_qa": ("round1", "Round 1: Fact Checker, Logical Analyst and Bias Detector are analyzing."),
+    "confidence_gate": ("confidence", "Evaluating confidence and deciding whether further review is needed."),
+    "round2_qa": ("round2", "Round 2: Fact Checker is challenging the initial analysis."),
+    "round3_qa": ("round3", "Round 3: Logical Analyst is reviewing weaker evidence."),
+    "final_judgment": ("judge", "Final Judge is synthesizing the verdict."),
+}
+
+
+def _tracked_node(node_name, node_function):
+    """Emit real start/end events around each LangGraph node execution."""
+    stage, message = _NODE_PROGRESS[node_name]
+
+    def run_node(state):
+        report_progress(stage, message, "running")
+        result = node_function(state)
+        report_progress(stage, message.replace("are analyzing", "completed analysis").replace(
+            "is challenging", "completed its challenge").replace(
+            "is reviewing", "completed its review").replace(
+            "is synthesizing", "completed synthesis"), "completed")
+        return result
+
+    return run_node
+
+
 def build_graph(use_checkpointing: bool = True):
     """
     Build and compile the TruthLens LangGraph.
@@ -67,37 +94,37 @@ def build_graph(use_checkpointing: bool = True):
 
     graph.add_node(
         "decompose_claim",
-        decompose_claim_node
+        _tracked_node("decompose_claim", decompose_claim_node)
     )
 
     graph.add_node(
         "credibility_check",
-        credibility_check_node
+        _tracked_node("credibility_check", credibility_check_node)
     )
 
     graph.add_node(
         "round1_qa",
-        round1_qa_node
+        _tracked_node("round1_qa", round1_qa_node)
     )
 
     graph.add_node(
         "confidence_gate",
-        confidence_gate_node
+        _tracked_node("confidence_gate", confidence_gate_node)
     )
 
     graph.add_node(
         "round2_qa",
-        round2_qa_node
+        _tracked_node("round2_qa", round2_qa_node)
     )
 
     graph.add_node(
         "round3_qa",
-        round3_qa_node
+        _tracked_node("round3_qa", round3_qa_node)
     )
 
     graph.add_node(
         "final_judgment",
-        final_judgment_node
+        _tracked_node("final_judgment", final_judgment_node)
     )
 
     # ── Fixed edges ────────────────────────────────────────────
