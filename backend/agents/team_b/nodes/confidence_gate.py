@@ -62,6 +62,12 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
         return state
 
     memory = state.get("qa_memory", [])
+    successful_memory = [
+        entry for entry in memory
+        if entry.get("status") != "failed"
+        and entry.get("insight") != "persona_failed"
+        and not str(entry.get("answer", "")).startswith("Error occurred:")
+    ]
     evidence = state.get("evidence", [])
     avg_quality = state.get("avg_source_quality", 0.5)
 
@@ -71,7 +77,7 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
     # Evidence-level stance labels remain a backward-compatible fallback.
     persona_stances = [
         str(entry.get("stance", "")).upper().strip()
-        for entry in memory
+        for entry in successful_memory
         if entry.get("stance")
     ]
 
@@ -104,7 +110,7 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
     # ── Signal 3: Persona answer certainty ─────────────────────
 
     structured_confidences = []
-    for entry in memory:
+    for entry in successful_memory:
         try:
             if entry.get("stance") and entry.get("confidence") is not None:
                 structured_confidences.append(
@@ -117,10 +123,10 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
         answer_certainty = (
             sum(structured_confidences) / len(structured_confidences)
         )
-    elif memory:
+    elif successful_memory:
         uncertain_count = sum(
             1
-            for entry in memory
+            for entry in successful_memory
             if any(
                 phrase in entry.get("answer", "").lower()
                 for phrase in UNCERTAIN_PHRASES
@@ -128,7 +134,7 @@ def confidence_gate_node(state: VerificationState) -> VerificationState:
         )
         answer_certainty = 1.0 - (uncertain_count / len(memory))
     else:
-        answer_certainty = 0.5
+        answer_certainty = 0.0
 
     # ── Combined confidence ──────────────────────────────────────
 
