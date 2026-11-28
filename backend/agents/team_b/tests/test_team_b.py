@@ -246,7 +246,11 @@ class TestRound1QA:
 
         state = _after_credibility(_base_state())
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round1_qa_node(state)
 
@@ -260,7 +264,11 @@ class TestRound1QA:
         state               = _after_credibility(_base_state())
         state["total_llm_calls"] = 1  # decompose already ran
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round1_qa_node(state)
 
@@ -369,7 +377,11 @@ class TestRound2QA:
         state = _after_round1(_base_state(), certain_answers=True)
         round1_memory_len = len(state["qa_memory"])   # 3
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round2_qa_node(state)
 
@@ -385,7 +397,11 @@ class TestRound2QA:
 
         state = _after_round1(_base_state(), certain_answers=True)
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round2_qa_node(state)
 
@@ -400,7 +416,11 @@ class TestRound2QA:
         state = _after_round1(_base_state(), certain_answers=True)
         state["total_llm_calls"] = 7   # after decompose(1) + round1(6)
 
-        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION):
+        with patch("backend.agents.llm_client.call_deepseek", return_value=FAKE_QUESTION), \
+             patch("backend.agents.llm_client.call_deepseek_json", return_value={
+                 "stance": "CONTRADICT", "confidence": 0.95,
+                 "reasoning": "The supplied evidence contradicts the claim."
+             }):
 
             result = round2_qa_node(state)
 
