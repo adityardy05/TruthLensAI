@@ -175,11 +175,13 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
         if result.get("available")
         and str(result.get("stance", "")).upper().strip() in ("SUPPORT", "CONTRADICT", "NEUTRAL")
     ]
-    stance_breakdown = {
+    persona_stance_breakdown = {
         "SUPPORT": persona_stances.count("SUPPORT"),
         "CONTRADICT": persona_stances.count("CONTRADICT"),
         "NEUTRAL": persona_stances.count("NEUTRAL"),
     }
+    # Preserve the existing API meaning: stance_breakdown counts evidence records.
+    stance_breakdown = evidence_stance_breakdown
 
     # ── Build prompt information ─────────────────────────────────
 
@@ -220,11 +222,11 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
             else "No"
         ),
 
-        support_count=stance_breakdown["SUPPORT"],
+        support_count=persona_stance_breakdown["SUPPORT"],
 
-        contradict_count=stance_breakdown["CONTRADICT"],
+        contradict_count=persona_stance_breakdown["CONTRADICT"],
 
-        neutral_count=stance_breakdown["NEUTRAL"],
+        neutral_count=persona_stance_breakdown["NEUTRAL"],
 
         evidence_support_count=evidence_stance_breakdown["SUPPORT"],
         evidence_contradict_count=evidence_stance_breakdown["CONTRADICT"],
@@ -305,7 +307,7 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
             justification,
             recommendation
         ) = _fallback_verdict(
-            stance_breakdown,
+            persona_stance_breakdown,
             state.get(
                 "avg_source_quality",
                 0.5
@@ -335,6 +337,7 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
 
         "stance_breakdown": stance_breakdown,
         "evidence_stance_breakdown": evidence_stance_breakdown,
+        "persona_stance_breakdown": persona_stance_breakdown,
 
         "persona_insights": persona_insights,
 
