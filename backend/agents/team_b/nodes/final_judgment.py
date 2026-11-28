@@ -726,11 +726,11 @@ def _fallback_verdict(
         )
 
     contradict_ratio = (
-        contradict / total
+        contradict / directional_total
     )
 
     support_ratio = (
-        support / total
+        support / directional_total
     )
 
     if contradict_ratio >= 0.7:
@@ -742,7 +742,7 @@ def _fallback_verdict(
                 contradict_ratio * 35,
                 1
             ),
-            f"{contradict}/{total} "
+            f"{contradict}/{directional_total} "
             "sources contradict the claim.",
             "Do not share"
         )
@@ -756,7 +756,7 @@ def _fallback_verdict(
                 support_ratio * 35,
                 1
             ),
-            f"{support}/{total} "
+            f"{support}/{directional_total} "
             "sources support the claim.",
             "Likely accurate"
         )
