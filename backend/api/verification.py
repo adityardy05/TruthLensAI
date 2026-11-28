@@ -128,7 +128,7 @@ def _run_verification_job(job_id: str, app, service, mode: str, payload: dict, i
             else:
                 result = service.verify_text(
                     str(payload.get("claim", "")),
-                    original_language=payload.get("original_language", "en"),
+                    original_language=payload.get("original_language"),
                     top_k=_parse_top_k(payload),
                     progress_callback=progress_callback,
                 )
@@ -188,7 +188,7 @@ def verify_text():
 
     try:
         claim = str(payload.get("claim", ""))
-        original_language = str(payload.get("original_language", "en"))
+        original_language = payload.get("original_language")
         top_k = _parse_top_k(payload)
 
         result = _service().verify_text(
