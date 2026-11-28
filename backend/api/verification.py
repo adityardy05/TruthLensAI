@@ -132,6 +132,74 @@ def verify_stream():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+
+
+def _run_verification_job(job_id: str, service, mode: str, payload: dict, image_bytes: bytes | None = None):
+    def progress_callback(event: dict) -> None:
+        append_job_event(job_id, event)
+
+    try:
+        if mode == "image":
+            result = service.verify_image(image_bytes or b"", progress_callback=progress_callback)
+        elif mode == "url":
+            result = service.verify_url(str(payload.get("url", "")), progress_callback=progress_callback)
+        else:
+            result = service.verify_text(
+                str(payload.get("claim", "")),
+                original_language=payload.get("original_language"),
+                top_k=_parse_top_k(payload),
+                progress_callback=progress_callback,
+            )
+        finish_job(job_id, result=result)
+    except Exception as error:
+        finish_job(job_id, error=str(error))
+
+
+@api.post("/verify/start")
+def start_verification():
+    """Start verification in a worker so the UI can poll live progress."""
+    mode = request.form.get("mode") if request.form else None
+    image_bytes = None
+
+    if request.files:
+        image = request.files.get("image") or request.files.get("file")
+        if image is None:
+            return jsonify({"error": "An image file is required."}), 400
+        image_bytes = image.read()
+        if not image_bytes:
+            return jsonify({"error": "The uploaded image is empty."}), 400
+        mode = "image"
+        payload = {}
+    else:
+        payload = request.get_json(silent=True) or {}
+        mode = mode or str(payload.get("mode", "text"))
+
+    if mode not in ("text", "image", "url"):
+        return jsonify({"error": "mode must be text, image, or url."}), 400
+    if mode == "text" and not str(payload.get("claim", "")).strip():
+        return jsonify({"error": "A non-empty claim is required."}), 400
+    if mode == "url" and not str(payload.get("url", "")).strip():
+        return jsonify({"error": "A URL is required."}), 400
+
+    service = _service()
+    job_id = create_job()
+    worker = Thread(
+        target=_run_verification_job,
+        args=(job_id, service, mode, payload, image_bytes),
+        daemon=True,
+        name="truthlens-" + job_id[:8],
+    )
+    worker.start()
+    return jsonify({"job_id": job_id, "status": "running"}), 202
+
+
+@api.get("/verify/progress/<job_id>")
+def verification_progress(job_id: str):
+    job = get_job(job_id)
+    if job is None:
+        return jsonify({"error": "Verification job not found or expired."}), 404
+    return jsonify(job), 200
+
 @api.post("/verify")
 def verify_text():
     payload = request.get_json(silent=True) or {}
