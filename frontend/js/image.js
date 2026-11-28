@@ -3,6 +3,8 @@ function getOcrStatusElement() {
     const ocr = document.getElementById('ocr-text');
     if (!ocr) return null;
     let status = document.getElementById('ocr-status');
+    const label = ocr.parentElement.querySelector('p');
+    if (label) label.textContent = 'Extracted text (OCR):';
     if (!status) {
         status = document.createElement('p');
         status.id = 'ocr-status';
