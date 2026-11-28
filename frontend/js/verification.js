@@ -395,7 +395,8 @@ async function analyzeClaim() {
         if (runId !== activeVerificationRun) return;
         markClaimChecking();
         setTargetClaim(claim, false);
-        resetCheckingPipeline();
+        // Do not reset here: real backend events may already have arrived
+        // while the side checking card was visible.
         switchView('checking');
         await simulateCheckingProcess(verificationRequest, runId);
     }, 3400));
