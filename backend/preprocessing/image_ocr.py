@@ -174,13 +174,21 @@ def run_ocr(image_bytes: bytes) -> str:
         except Exception as e:
             print(f"[OCRProcessor] Local Tesseract OCR failed: {e}. Falling back to OCR.space API...")
 
-    # Fallback to OCR.space free API
+    # Optional OCR.space fallback. Never rely on the public demo key.
     print("[OCRProcessor] Using OCR.space API fallback...")
+    api_key = os.getenv("OCR_SPACE_API_KEY", "").strip()
+    if not api_key:
+        print(
+            "[OCRProcessor] OCR.space fallback disabled: "
+            "set OCR_SPACE_API_KEY to enable it."
+        )
+        return ""
+
     try:
         import requests
         payload = {
-            'apikey': 'helloworld',
-            'language': 'eng',
+            'apikey': api_key,
+            'language': os.getenv("OCR_SPACE_LANGUAGE", "eng"),
         }
         response = requests.post(
             'https://api.ocr.space/parse/image',
