@@ -97,9 +97,9 @@ class VerificationService:
         response["input_metadata"] = {"ocr_text": ocr["original_text"]}
         return response
 
-    def verify_url(self, url: str) -> dict[str, Any]:
+    def verify_url(self, url: str, progress_callback=None) -> dict[str, Any]:
         text = extract_article_text(url)
-        response = self.verify_text(text, input_type="url")
+        response = self.verify_text(text, input_type="url", progress_callback=progress_callback)
         response["input_metadata"] = {"url": url}
         return response
 
