@@ -219,7 +219,7 @@ function setTerminalState(state) {
         : state === 'judging'
             ? 'Backend evidence and reviewer analysis are being evaluated...'
             : state === 'finalizing'
-                ? 'Final supervisor is synthesizing the judgment...'
+                ? 'Waiting for the verification backend to return its result...'
                 : 'Verification completed.';
     if (cursor) cursor.innerHTML = '&gt; ' + line + '<span class="terminal-cursor"></span>';
 }
