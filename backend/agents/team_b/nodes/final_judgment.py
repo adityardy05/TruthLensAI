@@ -715,13 +715,13 @@ def _fallback_verdict(
         neutral
     )
 
-    if total == 0:
-
+    directional_total = support + contradict
+    if directional_total == 0:
         return (
             "UNVERIFIABLE",
-            20.0,
-            "No evidence was available "
-            "to verify this claim.",
+            0.0,
+            "The available persona analyses did not establish support "
+            "or contradiction. A reliable verdict cannot be determined.",
             "Verify independently"
         )
 
@@ -761,13 +761,19 @@ def _fallback_verdict(
             "Likely accurate"
         )
 
-    else:
-
+    elif support > 0 and contradict > 0:
         return (
             "PARTIALLY_TRUE",
             50.0,
-            "Evidence is mixed — some "
-            "sources support, others "
-            "contradict.",
+            "Persona analyses contain both supporting and contradicting "
+            "signals; the claim requires further verification.",
+            "Verify independently"
+        )
+    else:
+        return (
+            "UNVERIFIABLE",
+            25.0,
+            "The available analysis is insufficient to establish a "
+            "well-supported verdict.",
             "Verify independently"
         )
