@@ -154,15 +154,26 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
 
     # ── Stance breakdown ─────────────────────────────────────────
 
-    stances = [
-        ev.get("stance", "NEUTRAL")
+    evidence_stances = [
+        str(ev.get("stance", "")).upper().strip()
         for ev in evidence
+        if str(ev.get("stance", "")).upper().strip() in ("SUPPORT", "CONTRADICT", "NEUTRAL")
     ]
-
+    evidence_stance_breakdown = {
+        "SUPPORT": evidence_stances.count("SUPPORT"),
+        "CONTRADICT": evidence_stances.count("CONTRADICT"),
+        "NEUTRAL": evidence_stances.count("NEUTRAL"),
+    }
+    persona_stances = [
+        str(result.get("stance", "")).upper().strip()
+        for result in resolved_personas.values()
+        if result.get("available")
+        and str(result.get("stance", "")).upper().strip() in ("SUPPORT", "CONTRADICT", "NEUTRAL")
+    ]
     stance_breakdown = {
-        "SUPPORT": stances.count("SUPPORT"),
-        "CONTRADICT": stances.count("CONTRADICT"),
-        "NEUTRAL": stances.count("NEUTRAL"),
+        "SUPPORT": persona_stances.count("SUPPORT"),
+        "CONTRADICT": persona_stances.count("CONTRADICT"),
+        "NEUTRAL": persona_stances.count("NEUTRAL"),
     }
 
     # ── Build prompt information ─────────────────────────────────
@@ -221,17 +232,17 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
 
         llm_calls += 1
 
-        verdict = response.get(
-            "verdict",
-            "UNVERIFIABLE"
-        )
+        allowed_verdicts = {
+            "TRUE", "FALSE", "PARTIALLY_TRUE",
+            "PARTIALLY_FALSE", "UNVERIFIABLE"
+        }
+        verdict = str(response.get("verdict", "UNVERIFIABLE")).upper().strip()
+        if verdict not in allowed_verdicts:
+            raise ValueError(f"Invalid verdict returned by model: {verdict!r}")
 
-        confidence = float(
-            response.get(
-                "final_confidence",
-                50.0
-            )
-        )
+        confidence = float(response.get("final_confidence", 50.0))
+        if not 0.0 <= confidence <= 100.0:
+            raise ValueError("Model confidence must be between 0 and 100.")
 
         justification = str(response.get("justification") or "").strip()
 
@@ -314,6 +325,7 @@ def final_judgment_node(state: VerificationState) -> VerificationState:
         "justification": justification,
 
         "stance_breakdown": stance_breakdown,
+        "evidence_stance_breakdown": evidence_stance_breakdown,
 
         "persona_insights": persona_insights,
 
@@ -412,6 +424,13 @@ def _resolve_latest_personas(
         ]["round"]
 
         # Only replace when this is a newer round
+        if (
+            entry.get("status") == "failed"
+            or entry.get("insight") == "persona_failed"
+            or str(entry.get("answer", "")).startswith("Error occurred:")
+        ):
+            continue
+
         if round_num >= current_round:
 
             resolved[persona] = {
@@ -617,10 +636,7 @@ def _build_evidence_summary(
             0.5
         )
 
-        stance = ev.get(
-            "stance",
-            "NEUTRAL"
-        )
+        stance = ev.get("stance", "NOT CLASSIFIED")
 
         content = ev.get(
             "content",
