@@ -12,6 +12,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from backend.agents.team_b.state import VerificationState
+from backend.services.progress import report_progress
 from backend.agents.team_b.personas import fact_checker, logical_analyst, bias_detector
 
 
@@ -65,6 +66,7 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
 
         try:
             # ── Step 1: Persona generates question ──────────────
+            report_progress("agent", f"{name}: generating verification question", "running")
             print(f"[round1_qa] {name} generating question...")
             question = module.generate_question(
                 claim=claim,
@@ -106,9 +108,11 @@ def round1_qa_node(state: VerificationState) -> VerificationState:
             })
 
             print(f"[round1_qa] {name} done. Insight: {insight[:60]}...")
+            report_progress("agent", f"{name}: Round 1 analysis completed")
 
         except Exception as e:
             print(f"[round1_qa] {name} failed: {e}. Skipping.")
+            report_progress("agent", f"{name}: failed — {e}", "error")
             memory.append({
                 "round":    ROUND_NUM,
                 "persona":  name,
